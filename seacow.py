@@ -21,10 +21,18 @@ def load_investments(doc):
 def load_investment_effects(doc):
     return load_df(doc, "Investment Effects")
 
-def load_df(doc, sheet_name):
+def load_player_income(doc, player):
+    df = load_df(doc, f"Player {player}", 'A:B')
+    return df
+
+def load_player_purchases(doc, player):
+    df = load_df(doc, f"Player {player}", 'D:D')
+    return df
+
+def load_df(doc, sheet_name, range=None):
     sheet = doc.worksheet(sheet_name)
-    records = sheet.get_all_records()
-    return pd.DataFrame(records)
+    cells = sheet.get_values(range, value_render_option='UNFORMATTED_VALUE')
+    return pd.DataFrame(cells[1:], columns=cells[0])
 
 
 def record_industries(doc, df):
@@ -39,9 +47,18 @@ def record_investments(doc, df):
 def record_investment_effects(doc, df):
     record_df(doc, "Investment Effects", df)
 
-def record_df(doc, sheet_name, df):
+def record_player_income(doc, player, df):
+    record_df(doc, f"Player {player}", df, range='A:B')
+
+def record_df(doc, sheet_name, df, range=None):
     df = pd.DataFrame(df)
     sheet = doc.worksheet(sheet_name)
-    sheet.update([df.columns.values.tolist()] + df.values.tolist())
+    cells = [df.columns.values.tolist()] + df.values.tolist()
+
+    if range:
+        sheet.update(range, cells)
+    else:
+        sheet.update(cells)
+
 
 
