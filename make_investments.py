@@ -1,22 +1,44 @@
 #!/usr/bin/env python3
 
 import seacow
+from itertools import count
 
 doc = seacow.load_doc()
 industries = seacow.load_industries(doc)
-
-names = industries['Industry']
-prices = [50, 100, 200, 400]
+interactions = seacow.load_industry_interactions(doc)
 
 investments = []
+effects = []
+prices = [50, 100, 200, 400]
+supplies = [100, 200, 400, 800]
+demands = [50, 100, 200, 400]
 
-for name in names:
-    for i, price in enumerate(prices, 1):
+for industry in industries['Industry']:
+    for i, price, supply, demand in zip(count(1), prices, supplies, demands):
+        name = f'{industry}{i}'
+
         investments.append({
-            'Investment': f'{name}{i}',
-            'Industry': name,
+            'Investment': name,
+            'Industry': industry,
             'Price': price,
         })
 
+        effects.append({
+            'Investment': name,
+            'Industry': industry,
+            'Effect': 'Supply',
+            'Value': supply,
+        })
+
+        relevant = (interactions['Industry 1'] == industry)
+        for _, interaction in interactions[relevant].iterrows():
+            effects.append({
+                'Investment': name,
+                'Industry': interaction['Industry 2'],
+                'Effect': 'Demand',
+                'Value': demand * interaction['Interaction'],
+            })
+
 seacow.record_investments(doc, investments)
+seacow.record_investment_effects(doc, effects)
 
