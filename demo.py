@@ -14,4 +14,4 @@ try:
 
 except gspread.exceptions.WorksheetNotFound:
     print((f'Spreadsheet document "{doc.title}" '
-        'does not have the sheet "{sheet_name}"'))
+        f'does not have the sheet "{sheet_name}"'))
