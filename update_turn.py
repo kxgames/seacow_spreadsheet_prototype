@@ -15,10 +15,10 @@ def calc_income(row, player):
     global_demand = row['Demand']
     price = row['Price']
 
-    units_sold = min(
+    units_sold = max(0, min(
             my_supply,
             global_demand * my_supply / global_supply,
-    )
+    ))
     return price * units_sold
 
 for player in [1, 2]:
