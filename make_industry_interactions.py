@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 
 from math import *
 
-random.seed(0)
+random.seed(1)
 
 doc = seacow.load_doc()
 industries = seacow.load_industries(doc)
@@ -49,8 +49,10 @@ for i, name in enumerate(names):
                 color='green' if weight > 0 else 'red',
         )
 
-# Upload the industry interactions:
+# Print the adjacency matrix to double check with if needed
+print(nx.to_pandas_adjacency(interactions).astype(int))
 
+# Upload the industry interactions:
 records = [
         {'Industry 1': k1, 'Industry 2': k2, 'Interaction': v['weight']}
         for (k1, k2), v in interactions.edges().items()
@@ -61,5 +63,3 @@ seacow.record_industry_interactions(doc, records)
 
 viz = nx.nx_agraph.to_agraph(interactions)
 viz.draw('industry_interactions.svg', prog='dot')
-
-

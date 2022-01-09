@@ -6,7 +6,9 @@ Usage
 -----
 Calculate a new industry interaction graph:
 
-1. Fill in the "Industries" spreadsheet with as many industries as you'd like.
+1. Fill in the "Industries" spreadsheet with as many industries as you'd like. 
+   Enter values for Industry (A), Price (B), and Implicit Supply/Demand (I/J). 
+   Pull down the formulas for the remaining columns (C-H).
 
 2. `./make_industry_interactions.py`
 

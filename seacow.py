@@ -39,12 +39,15 @@ def record_industries(doc, df):
     record_df(doc, "Industries", df)
 
 def record_industry_interactions(doc, df):
+    clear_sheet(doc, "Industry Interactions")
     record_df(doc, "Industry Interactions", df)
 
 def record_investments(doc, df):
+    clear_sheet(doc, "Investments")
     record_df(doc, "Investments", df)
 
 def record_investment_effects(doc, df):
+    clear_sheet(doc, "Investment Effects")
     record_df(doc, "Investment Effects", df)
 
 def record_player_income(doc, player, df):
@@ -61,4 +64,11 @@ def record_df(doc, sheet_name, df, range=None):
         sheet.update(cells)
 
 
+def clear_sheet(doc, sheet_name, range=None):
+    sheet = doc.worksheet(sheet_name)
 
+    if range:
+        sheet.values_clear(range)
+    else:
+        # clear the entire sheet
+        sheet.clear()

@@ -2,3 +2,5 @@
 .*.swp
 .env
 .unenv
+
+__pycache__/

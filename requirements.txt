@@ -1,0 +1,9 @@
+#if using conda, use the conda-forge channel
+
+numpy
+pandas
+matplotlib
+networkx
+pygraphviz
+
+gspread
