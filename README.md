@@ -10,10 +10,11 @@ Calculate a new industry interaction graph:
    Enter values for Industry (A), Price (B), and Implicit Supply/Demand (I/J). 
    Pull down the formulas for the remaining columns (C-H).
 
-2. `./make_industry_interactions.py`
+2. `./make_industry_interactions.py -h`
 
    This script will fill in the "Industry Interactions" spreadsheet and output 
-   an SVG file illustrating the interaction graph.
+   an SVG file illustrating the interaction graph.  You can set a custom random 
+   seed to generate different graphs.
 
 Create "investments" for the players to purchase:
 
@@ -45,3 +46,6 @@ remove the authentication file to repeat the authentication process:
 ```
 rm ~/.config/gspread/authorized_user.json
 ```
+
+After that, just run any of the scripts like normal and you will be prompted 
+for permission again.
