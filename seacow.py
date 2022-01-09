@@ -57,6 +57,7 @@ def record_global_market(doc, player, df):
     record_df(doc, f"Player {player}", df, range='H:K')
 
 def record_player_intel(doc, player, df):
+    clear_sheet(doc, f"Player {player} Intel")
     record_df(doc, f"Player {player} Intel", df)
 
 def record_df(doc, sheet_name, df, range=None):
