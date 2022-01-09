@@ -7,6 +7,7 @@ import pandas as pd
 
 doc = seacow.load_doc()
 industries = seacow.load_industries(doc)
+global_market = industries.loc[:, 'Industry':'Demand']
 
 def calc_income(row, player):
     my_supply = row[f'Player {player} Supply']
@@ -28,7 +29,9 @@ for player in [1, 2]:
         index=ledger.columns,
     )
     ledger = ledger.append(row, ignore_index=True)
-    seacow.record_player_income(doc, player, ledger)
+    #seacow.record_player_income(doc, player, ledger)
+
+    seacow.record_global_market(doc, player, global_market)
 
 
 

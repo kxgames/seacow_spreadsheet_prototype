@@ -53,6 +53,9 @@ def record_investment_effects(doc, df):
 def record_player_income(doc, player, df):
     record_df(doc, f"Player {player}", df, range='A:B')
 
+def record_global_market(doc, player, df):
+    record_df(doc, f"Player {player}", df, range='H:K')
+
 def record_df(doc, sheet_name, df, range=None):
     df = pd.DataFrame(df)
     sheet = doc.worksheet(sheet_name)

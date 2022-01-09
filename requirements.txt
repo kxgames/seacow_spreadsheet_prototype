@@ -5,5 +5,5 @@ pandas
 matplotlib
 networkx
 pygraphviz
-
 gspread
+docopt
