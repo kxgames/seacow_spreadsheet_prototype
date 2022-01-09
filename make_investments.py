@@ -10,8 +10,8 @@ interactions = seacow.load_industry_interactions(doc)
 investments = []
 effects = []
 prices = [50, 100, 200, 400]
-supplies = [100, 200, 400, 800]
-demands = [50, 100, 200, 400]
+supplies = [10, 50, 200, 800]
+demands = [5, 25, 100, 400]
 
 for industry in industries['Industry']:
     for i, price, supply, demand in zip(count(1), prices, supplies, demands):
