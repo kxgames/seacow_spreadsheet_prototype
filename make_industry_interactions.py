@@ -60,7 +60,7 @@ for i, name in enumerate(names):
 
     for partner, weight in zip(partners, weights):
         interactions.add_edge(
-                name, partner,
+                partner, name,
                 weight=weight,
                 color='green' if weight > 0 else 'red',
         )
