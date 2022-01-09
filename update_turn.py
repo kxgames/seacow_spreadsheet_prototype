@@ -29,7 +29,7 @@ for player in [1, 2]:
         index=ledger.columns,
     )
     ledger = ledger.append(row, ignore_index=True)
-    #seacow.record_player_income(doc, player, ledger)
+    seacow.record_player_income(doc, player, ledger)
 
     seacow.record_global_market(doc, player, global_market)
 
