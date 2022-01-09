@@ -31,7 +31,11 @@ for player in [1, 2]:
     ledger = ledger.append(row, ignore_index=True)
     seacow.record_player_income(doc, player, ledger)
 
-    seacow.record_global_market(doc, player, global_market)
+    #seacow.record_global_market(doc, player, global_market)
+
+    purchases = seacow.load_player_purchases(doc, player)
+    intel_receiver = (player % 2) + 1
+    seacow.record_player_intel(doc, intel_receiver, purchases)
 
 
 
