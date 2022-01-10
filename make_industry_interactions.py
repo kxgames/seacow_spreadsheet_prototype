@@ -60,7 +60,15 @@ for i, row in industries.iterrows():
 # Decide which industries will interact with each other:
 
 interactions = nx.DiGraph()
-interactions.add_nodes_from(names)
+#interactions.add_nodes_from(names)
+
+round_colors = [
+        'black',
+        'gray20',
+        'gray50',
+        ]
+for round_names, color in zip(rounds.values(), round_colors):
+    interactions.add_nodes_from(round_names, color=color)
 
 for i, row in industries.iterrows():
     name = row["Industry"]
