@@ -43,10 +43,7 @@ random.seed(seed)
 
 doc = seacow.load_doc()
 industries = seacow.load_industries(doc)
-
 names = industries["Industry"]
-n = len(names)
-pop = range(n - 1)
 
 # Figure out which industries make up each round:
 
