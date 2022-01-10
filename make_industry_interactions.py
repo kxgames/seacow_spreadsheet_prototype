@@ -46,16 +46,31 @@ names = industries["Industry"]
 n = len(names)
 pop = range(n - 1)
 
+# Work out which industries "come online" together.
+
+rounds = {}
+
+for i, row in industries.iterrows():
+    round = row["Round"]
+    rounds.setdefault(round, []).append(i)
+
 # Decide which industries will interact with each other:
+debug(rounds)
 
 interactions = nx.DiGraph()
 interactions.add_nodes_from(names)
 
-for i, name in enumerate(names):
+for i, row in industries.iterrows():
+    name = row["Industry"]
+    round = row["Round"]
+
     weights = [1, -1]
     partners = [
-            names[j if j < i else j+1]
-            for j in random.sample(pop, len(weights))
+            names[j]
+            for j in random.sample(
+                [k for k in rounds[round] if k != i],
+                len(weights),
+            )
     ]
 
     for partner, weight in zip(partners, weights):
