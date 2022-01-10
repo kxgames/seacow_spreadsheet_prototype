@@ -33,6 +33,8 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 from math import *
+from itertools import cycle
+from more_itertools import pairwise
 
 args = docopt.docopt(__doc__)
 
@@ -51,11 +53,11 @@ pop = range(n - 1)
 rounds = {}
 
 for i, row in industries.iterrows():
+    name = row["Industry"]
     round = row["Round"]
-    rounds.setdefault(round, []).append(i)
+    rounds.setdefault(round, []).append(name)
 
 # Decide which industries will interact with each other:
-debug(rounds)
 
 interactions = nx.DiGraph()
 interactions.add_nodes_from(names)
@@ -66,9 +68,9 @@ for i, row in industries.iterrows():
 
     weights = [1, -1]
     partners = [
-            names[j]
-            for j in random.sample(
-                [k for k in rounds[round] if k != i],
+            partner
+            for partner in random.sample(
+                [x for x in rounds[round] if x != name],
                 len(weights),
             )
     ]
@@ -80,10 +82,25 @@ for i, row in industries.iterrows():
                 color='green' if weight > 0 else 'red',
         )
 
+# Add interactions between rounds:
+
+for k, v in rounds.items():
+    random.shuffle(v)
+
+for old, new in pairwise(sorted(rounds)):
+    for old_name, new_name in zip(rounds[old], cycle(rounds[new])):
+        interactions.add_edge(
+                new_name, old_name,
+                weight=-1,
+                color='red',
+        )
+
 # Print the adjacency matrix to double check with if needed
+
 print(nx.to_pandas_adjacency(interactions).astype(int))
 
 # Upload the industry interactions:
+
 if not args['--no-upload']:
     print("Uploading to Google drive...")
     records = [
