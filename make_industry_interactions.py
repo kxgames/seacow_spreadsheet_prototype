@@ -112,6 +112,12 @@ else:
     print("Skipped upload")
 
 # Plot the industry interactions:
+#
+# Note that GraphViz is the library that's actually making the images.  So 
+# search for "graphviz" when looking for for info on how to change the 
+# appearance of the graph.  For example, here are the colors you can use:
+#
+# https://graphviz.org/doc/info/colors.html
 
 viz = nx.nx_agraph.to_agraph(interactions)
 viz.draw('industry_interactions.svg', prog='dot')
