@@ -48,7 +48,7 @@ names = industries["Industry"]
 n = len(names)
 pop = range(n - 1)
 
-# Work out which industries "come online" together.
+# Figure out which industries make up each round:
 
 rounds = {}
 
@@ -60,13 +60,12 @@ for i, row in industries.iterrows():
 # Decide which industries will interact with each other:
 
 interactions = nx.DiGraph()
-#interactions.add_nodes_from(names)
 
 round_colors = [
         'white',
         'gray80',
         'gray60',
-        ]
+]
 for round_names, color in zip(rounds.values(), round_colors):
     interactions.add_nodes_from(round_names, fillcolor=color, style='filled')
 
@@ -75,13 +74,8 @@ for i, row in industries.iterrows():
     round = row["Round"]
 
     weights = [1, -1]
-    partners = [
-            partner
-            for partner in random.sample(
-                [x for x in rounds[round] if x != name],
-                len(weights),
-            )
-    ]
+    round_mates = [x for x in rounds[round] if x != name]
+    partners = [x for x in random.sample(round_mates, len(weights))]
 
     for partner, weight in zip(partners, weights):
         interactions.add_edge(
@@ -100,10 +94,10 @@ for old, new in pairwise(sorted(rounds)):
         interactions.add_edge(
                 new_name, old_name,
                 weight=-1,
-                color='red',
+                color='lightpink',
         )
 
-# Print the adjacency matrix to double check with if needed
+# Print the adjacency matrix to double check with if needed:
 
 print(nx.to_pandas_adjacency(interactions).astype(int))
 
