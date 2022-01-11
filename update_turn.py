@@ -21,7 +21,41 @@ def calc_income(row, player):
     ))
     return price * units_sold
 
+def remake_purchases(purchases_df):
+    # Get both columns and identify new purchases
+    new_purchases = purchases_df.loc[:,'New Purchases']
+    existing_purchases = purchases_df.loc[:,'Existing Purchases']
+
+    new_purchases = new_purchases[new_purchases != '']
+    existing_purchases = existing_purchases[existing_purchases != '']
+
+    # Combine and sort
+    combined = pd.concat([new_purchases, existing_purchases], ignore_index=True)
+    sorted = combined.sort_values(ignore_index=True)
+
+    # Recreate the two-column dataframe
+    final_df = sorted.to_frame(name='Existing Purchases')
+    final_df.insert(0, 'New Purchases', '')
+
+    return final_df
+
+
+
 for player in [1, 2]:
+
+    # Update purchases
+    old_purchases_df = seacow.load_player_purchases(doc, player)
+    new_purchases_df = remake_purchases(old_purchases_df)
+    seacow.record_player_purchases(doc, player, new_purchases_df)
+
+    # Update sheet for spying
+    intel_receiver = (player % 2) + 1
+    seacow.record_player_intel(doc, intel_receiver, new_purchases_df['Existing Purchases'])
+
+#pause for a bit to let sheets load changes?
+
+for player in [1, 2]:
+    # Update income
     ledger = seacow.load_player_income(doc, player)
     income = industries.apply(calc_income, axis=1, player=player).sum()
     row = pd.Series(
@@ -31,12 +65,6 @@ for player in [1, 2]:
     ledger = ledger.append(row, ignore_index=True)
     seacow.record_player_income(doc, player, ledger)
 
+    # Update global market info
     #seacow.record_global_market(doc, player, global_market)
-
-    purchases = seacow.load_player_purchases(doc, player)
-    intel_receiver = (player % 2) + 1
-    seacow.record_player_intel(doc, intel_receiver, purchases)
-
-
-
 
