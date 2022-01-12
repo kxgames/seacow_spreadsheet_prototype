@@ -10,6 +10,16 @@ def load_doc():
     #return auth.open_by_key('126oXnb_MY7JUeRQpGgN6YVsGkKThBzf7udPuKhO1kzw') # Version 2
     return auth.open_by_key('12AbTTUJYCDZp5wqK4vwILPR3h-qdJlaKNRbeqkpCyT8') # Version 3
 
+def load_status(doc):
+    p1_sheet = doc.worksheet('Player 1')
+    p2_sheet = doc.worksheet('Player 2')
+    p1_status = p1_sheet.acell('G8').value
+    p2_status = p2_sheet.acell('G8').value
+
+    assert p1_status == p2_status 
+
+    return p1_status
+
 def load_industries(doc):
     return load_df(doc, "Industries")
 
@@ -36,6 +46,10 @@ def load_df(doc, sheet_name, range=None):
     return pd.DataFrame(cells[1:], columns=cells[0])
 
 
+def record_status(doc, status):
+    record_cell(doc, 'Player 1', 'G8', status)
+    record_cell(doc, 'Player 2', 'G8', status)
+
 def record_industries(doc, df):
     record_df(doc, "Industries", df)
 
@@ -45,11 +59,11 @@ def record_industry_interactions(doc, df):
 
 def record_investments(doc, df):
     clear_sheet(doc, "Investments")
-    record_df(doc, "Investments", df, sort_cols=['Investment', 'Industry'])
+    record_df(doc, "Investments", df)
 
 def record_investment_effects(doc, df):
     clear_sheet(doc, "Investment Effects")
-    record_df(doc, "Investment Effects", df, sort_cols=['Investment', 'Industry','Effect','Value'])
+    record_df(doc, "Investment Effects", df)
 
 def record_player_income(doc, player, df):
     record_df(doc, f"Player {player}", df, range='A:B')
@@ -65,11 +79,8 @@ def record_player_purchases(doc, player, df):
     clear_sheet(doc, f"Player {player}", range='D:E')
     record_df(doc, f"Player {player}", df, range='D:E')
 
-def record_df(doc, sheet_name, df, range=None, sort_cols=None):
+def record_df(doc, sheet_name, df, range=None):
     df = pd.DataFrame(df)
-    if sort_cols is not None:
-        df.sort_values(sort_cols, ascending=True, inplace=True)
-
     sheet = doc.worksheet(sheet_name)
     cells = [df.columns.values.tolist()] + df.values.tolist()
 
@@ -77,6 +88,10 @@ def record_df(doc, sheet_name, df, range=None, sort_cols=None):
         sheet.update(range, cells)
     else:
         sheet.update(cells)
+
+def record_cell(doc, sheet_name, cell_index, value):
+    sheet = doc.worksheet(sheet_name)
+    sheet.update(cell_index, value)
 
 
 def clear_sheet(doc, sheet_name, range=None):

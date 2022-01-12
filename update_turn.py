@@ -2,6 +2,7 @@
 
 import seacow
 import pandas as pd
+from time import sleep
 
 # - Update player income
 
@@ -39,10 +40,8 @@ def remake_purchases(purchases_df):
 
     return final_df
 
-
-
+seacow.record_status(doc, "Updating purchases...")
 for player in [1, 2]:
-
     # Update purchases
     old_purchases_df = seacow.load_player_purchases(doc, player)
     new_purchases_df = remake_purchases(old_purchases_df)
@@ -52,8 +51,14 @@ for player in [1, 2]:
     intel_receiver = (player % 2) + 1
     seacow.record_player_intel(doc, intel_receiver, new_purchases_df['Existing Purchases'])
 
-#pause for a bit to let sheets load changes?
+seacow.record_status(doc, "Finished updating purchases")
 
+for t in range(3,0,-1):
+    # Pause for a bit to let sheets finish syncing changes
+    seacow.record_status(doc, f"Taking a breather ({t})")
+    sleep(1)
+
+seacow.record_status(doc, "Updating ledgers")
 for player in [1, 2]:
     # Update income
     ledger = seacow.load_player_income(doc, player)
@@ -68,3 +73,6 @@ for player in [1, 2]:
     # Update global market info
     #seacow.record_global_market(doc, player, global_market)
 
+seacow.record_status(doc, "Finished updating ledgers")
+
+seacow.record_status(doc, "Play your turn")
