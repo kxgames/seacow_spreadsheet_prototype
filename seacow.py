@@ -68,6 +68,9 @@ def record_investment_effects(doc, df):
 def record_player_income(doc, player, df):
     record_df(doc, f"Player {player}", df, range='A:B')
 
+def record_player_income_breakdown(doc, player, df):
+    record_df(doc, f"Player {player}", df, range='I:J')
+
 def record_global_market(doc, player, df):
     record_df(doc, f"Player {player}", df, range='H:K')
 
