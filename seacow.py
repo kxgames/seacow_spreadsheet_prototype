@@ -10,15 +10,16 @@ def load_doc():
     #return auth.open_by_key('126oXnb_MY7JUeRQpGgN6YVsGkKThBzf7udPuKhO1kzw') # Version 2
     return auth.open_by_key('12AbTTUJYCDZp5wqK4vwILPR3h-qdJlaKNRbeqkpCyT8') # Version 3
 
+def load_is_finished(doc):
+    sheet = doc.worksheet(f'Game Info')
+    is_finished = sheet.acell('A6').value
+    return is_finished == 'TRUE'
+
 def load_status(doc):
-    p1_sheet = doc.worksheet('Player 1')
-    p2_sheet = doc.worksheet('Player 2')
-    p1_status = p1_sheet.acell('G8').value
-    p2_status = p2_sheet.acell('G8').value
+    sheet = doc.worksheet('Game Info')
+    status = sheet.acell('A3').value
 
-    assert p1_status == p2_status 
-
-    return p1_status
+    return status
 
 def load_industries(doc):
     return load_df(doc, "Industries")
@@ -47,8 +48,7 @@ def load_df(doc, sheet_name, range=None):
 
 
 def record_status(doc, status):
-    record_cell(doc, 'Player 1', 'G8', status)
-    record_cell(doc, 'Player 2', 'G8', status)
+    record_cell(doc, 'Game Info', 'A3', status)
 
 def record_industries(doc, df):
     record_df(doc, "Industries", df)
@@ -79,7 +79,7 @@ def record_player_intel(doc, player, df):
     record_df(doc, f"Player {player} Intel", df)
 
 def record_player_purchases(doc, player, df):
-    clear_sheet(doc, f"Player {player}", range='D:E')
+    #clear_sheet(doc, f"Player {player}", range='D:E')
     record_df(doc, f"Player {player}", df, range='D:E')
 
 def record_df(doc, sheet_name, df, range=None):
@@ -105,3 +105,5 @@ def clear_sheet(doc, sheet_name, range=None):
     else:
         # clear the entire sheet
         sheet.clear()
+def reset_is_finished(doc, player):
+    record_cell(doc, f'Player {player}', 'G5', False)
