@@ -8,7 +8,8 @@ def load_doc():
 
     # From the URL of the "Seacow market prototype v2" spreadsheet.
     #return auth.open_by_key('126oXnb_MY7JUeRQpGgN6YVsGkKThBzf7udPuKhO1kzw') # Version 2
-    return auth.open_by_key('12AbTTUJYCDZp5wqK4vwILPR3h-qdJlaKNRbeqkpCyT8') # Version 3
+    #return auth.open_by_key('12AbTTUJYCDZp5wqK4vwILPR3h-qdJlaKNRbeqkpCyT8') # Version 3
+    return auth.open_by_key('1tSY8ikutY26WTXYAln9sqQh62_uaOZFEE0tsTYZ9Aec') # Version 4
 
 def load_is_finished(doc):
     sheet = doc.worksheet(f'Game Info')
