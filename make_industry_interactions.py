@@ -62,6 +62,7 @@ import docopt
 import seacow
 import random
 import networkx as nx
+import pygraphviz as pgv
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -78,16 +79,13 @@ np.random.seed(seed)
 
 doc = seacow.load_doc()
 industries = seacow.load_industries(doc)
-names = industries["Industry"]
-
-# Add nodes to the graph and figure out which industries make up each round:
-interactions = nx.DiGraph()
 
 round_colors = defaultdict(lambda: 'white', {
     1 : 'white',
     2 : 'gray80',
     3 : 'gray60',
     })
+
 category_shapes = defaultdict(lambda: 'oval', {
     'GS' : 'Mcircle',
     'R'  : 'oval',
@@ -95,8 +93,10 @@ category_shapes = defaultdict(lambda: 'oval', {
     'L'  : 'diamond',
     })
 
-rounds_dict = defaultdict(list)
-categories_dict = defaultdict(list)
+# Create the graph and add the nodes to the graph
+interactions = nx.DiGraph()
+#rounds_dict = defaultdict(list)
+#categories_dict = defaultdict(list)
 for i, row in industries.iterrows():
     name = row["Industry"]
     category = row["Category"]
@@ -104,8 +104,8 @@ for i, row in industries.iterrows():
     color = round_colors[round]
     shape = category_shapes[category]
 
-    rounds_dict[round].append(name)
-    categories_dict[category].append(name)
+    #rounds_dict[round].append(name)
+    #categories_dict[category].append(name)
 
     interactions.add_node(name, fillcolor=color, style='filled', shape=shape)
 
@@ -168,9 +168,10 @@ def influenced_by_tuples(name, partners, weights):
 def influences_tuples(name, partners, weights):
     # Note, these are current industry influences partners ( c -> p )
     return [(name, p, w) for p, w in zip(partners, weights)]
-
 new_links = [] # [(independent_industry , dependent_industry, weight), ...]
 for _, row in industries.iterrows():
+    # For each industry, define rules for interacting with other types of 
+    # industries and decide what the weights are
     name = row["Industry"]
     category = row["Category"]
     round = row["Round"]
@@ -240,6 +241,7 @@ for _, row in industries.iterrows():
         print(f"Unkown industry category {category}")
         continue
 
+# Create the industry interactions (graph edges)
 for link_A, link_B, weight in new_links:
     interactions.add_edge(
             link_A, link_B,
@@ -272,7 +274,38 @@ else:
 # appearance of the graph.  For example, here are the colors you can use:
 #
 # https://graphviz.org/doc/info/colors.html
-
 viz = nx.nx_agraph.to_agraph(interactions)
+get_names = lambda query_expr: industries.query(query_expr)['Industry'].values
+
+## Cluster just the game states and raw industries
+subgraph_GS_R = viz.add_subgraph(
+        get_names("Category == ['GS', 'R']"), name='cluster_GS_R', rank='same'
+        )
+
+## Cluster by category
+#subgraph_GS = viz.add_subgraph(
+#        get_names("Category == 'GS'"), name='cluster_GS', rank='same'
+#        )
+#subgraph_R = viz.add_subgraph(
+#        get_names("Category == 'R'"),  name='cluster_R',  rank='same'
+#        )
+#subgraph_P = viz.add_subgraph(
+#        get_names("Category == 'P'"),  name='cluster_P',  rank='same'
+#        )
+#subgraph_L = viz.add_subgraph(
+#        get_names("Category == 'L'"),  name='cluster_L',  rank='same'
+#        )
+
+## Cluster by round
+#subgraph_r1 = viz.add_subgraph(
+#        get_names("Round == 1"),  name='cluster_r1',  rank='same'
+#        )
+#subgraph_r2 = viz.add_subgraph(
+#        get_names("Round == 2"),  name='cluster_r2',  rank='same'
+#        )
+#subgraph_r3 = viz.add_subgraph(
+#        get_names("Round == 3"),  name='cluster_r3',  rank='same'
+#        )
+
 viz.draw('industry_interactions.svg', prog='dot')
 print("Updated SVG file")
