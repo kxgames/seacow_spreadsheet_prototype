@@ -2,7 +2,7 @@
 
 """\
 Usage:
-    make_industry_interactions.py [-r <seed>] [-U]
+    make_industry_interactions.py [-r <seed>] [-U] [-a]
 
 Options:
     -r --random-seed <int>      [default: 0]
@@ -10,6 +10,9 @@ Options:
 
     -U --no-upload
         Don't upload the resulting industry interactions to Google drive.
+
+    -a --print-adjacency
+        Print the final adjacency matrix.
 """
 
 # Advanced Industries update goals:
@@ -247,7 +250,8 @@ for link_A, link_B, weight in new_links:
 
 # Print the adjacency matrix to double check with if needed:
 
-print(nx.to_pandas_adjacency(interactions).astype(int))
+if args['--print-adjacency']:
+    print(nx.to_pandas_adjacency(interactions).astype(int))
 
 # Upload the industry interactions:
 
