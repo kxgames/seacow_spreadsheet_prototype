@@ -24,6 +24,9 @@ Options:
 #   cannot be invested in by players. In older version of the prototype, these 
 #   Game States would be akin to the industries with only outgoing interaction 
 #   arrows (which we got rid of because they were boring to invest in).
+#   - Issue: The current spreadsheets/code would need a lot of changes to allow 
+#     things other than direct player investments to change the demand of 
+#     downstream industries.
 #
 # - Define a hierarchy of industry categories. Initial thoughts are Raw, 
 #   Processing, and Luxury. These are closely related to industry stability.  
@@ -43,6 +46,10 @@ Options:
 #   suppressing the demand in A below the supply level can start to drag down B 
 #   and C too. This requires rethinking the governing equations for the 
 #   industries. Perhaps more like a neural network.
+#   - ISSUE: circular influences would lead to runaway calculations. Instead, 
+#     perhaps increasing the supply in A would increase the demand on B. The 
+#     demand in A has no effect. But isn't this essentially what we have 
+#     already?
 
 # Right now, this script creates a graph by picking 2 random interactions (1 
 # positive, 1 negative) for each industry.  These interactions will probably be 

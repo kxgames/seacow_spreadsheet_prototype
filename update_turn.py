@@ -4,6 +4,14 @@ import seacow
 import pandas as pd
 from time import sleep
 
+def calc_industries():
+    # Calculate the total and internal supply and demand for each industry
+    # I'd like to have changes in supply/demand propagate through the network a 
+    # bit, but having cycles in the network makes this impossible.
+    #
+    raise NotImplementedError
+
+
 def remake_purchases(purchases_df):
     # Get both columns and identify new purchases
     new_purchases = purchases_df.loc[:,'New Purchases']

@@ -52,6 +52,9 @@ def record_status(doc, status):
     record_cell(doc, 'Game Info', 'A3', status)
 
 def record_industries(doc, df):
+    raise NotImplementedError
+    # Wouldn't this overwrite the entire sheet?
+    # That would be BAD because there are a lot of functions on it already.
     record_df(doc, "Industries", df)
 
 def record_industry_interactions(doc, df):
@@ -70,9 +73,12 @@ def record_player_income(doc, player, df):
     record_df(doc, f"Player {player}", df, range='A:B')
 
 def record_player_income_breakdown(doc, player, df):
+    raise NotImplementedError
     record_df(doc, f"Player {player}", df, range='I:J')
 
 def record_global_market(doc, player, df):
+    raise NotImplementedError
+    # No longer needed?
     record_df(doc, f"Player {player}", df, range='H:K')
 
 def record_player_intel(doc, player, df):
