@@ -4,3 +4,4 @@
 .unenv
 
 __pycache__/
+!assets/*.svg
