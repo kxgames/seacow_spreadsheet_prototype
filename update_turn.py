@@ -1,92 +1,182 @@
 #!/usr/bin/env python3
 
 import seacow
+import numpy as np
 import pandas as pd
-from time import sleep
 
-def remake_purchases(purchases_df):
-    # Get both columns and identify new purchases
-    new_purchases = purchases_df.loc[:,'New Purchases']
-    existing_purchases = purchases_df.loc[:,'Existing Purchases']
+from numpy import log, exp
 
-    new_purchases = new_purchases[new_purchases != '']
-    existing_purchases = existing_purchases[existing_purchases != '']
+def update_turn(doc):
+    markets = seacow.load_markets(doc)
+    player_investments = seacow.load_player_existing_investments(doc)
+    player_new_investments = seacow.load_player_new_investments(doc)
+    investment_effects = seacow.load_investment_effects(doc)
 
-    # Combine and sort
-    combined = pd.concat([new_purchases, existing_purchases], ignore_index=True)
-    sorted = combined.sort_values(ignore_index=True)
+    market_shares = calc_market_shares(
+            markets,
+            player_investments,
+            investment_effects,
+    )
 
-    # Recreate the two-column dataframe
-    final_df = sorted.to_frame(name='Existing Purchases')
-    final_df.insert(0, 'New Purchases', '')
+    elasticities = seacow.load_elasticities(doc)
 
-    return final_df
-def calc_income(row, player):
-    my_supply = row[f'Player {player} Supply']
-    global_supply = row['Supply']
-    global_demand = row['Demand']
-    price = row['Price']
+    update_market_state(markets, market_shares, elasticities)
+    seacow.record_markets(doc, markets)
 
-    units_sold = max(0, min(
-            my_supply,
-            global_demand * my_supply / global_supply,
-    ))
+    player_incomes = seacow.load_player_incomes(doc)
+    update_player_incomes(markets, market_shares, player_incomes)
+    seacow.record_player_incomes(doc, player_incomes)
 
-    return price * units_sold
+    df = concat_player_investments(player_new_investments, player_investments)
+    seacow.record_player_investments(doc, df)
+    seacow.clear_player_new_investments(doc)
 
+def calc_market_shares(markets, player_investments, investment_effects):
+    """
+    Work out what quantity of supply and demand each player is individually 
+    responsible for.
 
-def update_turn(doc=None, breather_time=5):
-    if doc is None:
-        doc = seacow.load_doc()
+    These quantities are given in terms of "Supply at $1" and "Demand at $1".  
+    In other words, these are the quantities that would be supplied/demanded if 
+    the price were fixed.  The actual quantities supplied/demanded will be 
+    adjusted once the prices are set.
+    """
+    market_shares = pd.DataFrame(
+            data=0,
+            index=pd.MultiIndex.from_product(
+                (markets.index, seacow.PLAYERS + ['World']),
+                names=['Market', 'Player'],
+                ),
+            columns=[
+                'Supply at $1',
+                'Demand at $1',
+                'Supply Share',
+                'Demand Share',
+                ],
+            )
 
-    # - Update player purchases
-    seacow.record_status(doc, "Updating purchases...")
-    for player in [1, 2]:
-        # Update purchases
-        old_purchases_df = seacow.load_player_purchases(doc, player)
-        new_purchases_df = remake_purchases(old_purchases_df)
-        seacow.record_player_purchases(doc, player, new_purchases_df)
+    for market, row in markets.iterrows():
+        i = market, 'World'
+        market_shares.loc[i, 'Supply at $1'] += row['Supply at $1']
+        market_shares.loc[i, 'Demand at $1'] += row['Demand at $1']
 
-        # Update sheet for spying
-        intel_receiver = (player % 2) + 1
-        seacow.record_player_intel(doc, intel_receiver, new_purchases_df['Existing Purchases'])
+    for player, row in player_investments.iterrows():
+        investment = row['Existing Investments']
 
-    # Pause for a bit to reduce the read/writes per minute rates
-    if breather_time is not None:
-        seacow.record_status(doc, f"Taking a breather (~{breather_time} s)")
-        sleep(breather_time)
+        for market, row in investment_effects.loc[investment].iterrows():
+            i = market, player
+            market_shares.loc[i, 'Supply at $1'] += row['Marginal Supply at $1']
+            market_shares.loc[i, 'Demand at $1'] += row['Marginal Demand at $1']
 
-    # - Update player income
-    seacow.record_status(doc, "Updating ledgers...")
-    industries = seacow.load_industries(doc)
-    #global_market = industries.loc[:, 'Industry':'Demand']
-    for player in [1, 2]:
+    # It seems like I should be able to do this calculation with `groupby()`, 
+    # but I can't figure out how.
 
-        # Calculate the income
-        ledger = seacow.load_player_income(doc, player)
-        #income = industries.apply(calc_income, axis=1, player=player).sum()
-        income_by_industry = industries.apply(calc_income, axis=1, player=player)
-        income_by_industry.rename('Income Breakdown', inplace=True)
-        income = income_by_industry.sum()
+    for market, in markets.index:
+        # If I keep *s* as a Series (instead of converting it to a numpy 
+        # array), all the market shares end up getting set to NaN.  I don't 
+        # understand why.
+        s = market_shares.loc[market, 'Supply at $1'].values
+        market_shares.loc[market, 'Supply Share'] = s / s.sum()
 
-        # Update the ledger for each player
-        row = pd.Series(
-            [ledger.iloc[-1]['Turn'] + 1, income],
-            index=ledger.columns,
-        )
-        ledger = ledger.append(row, ignore_index=True)
-        seacow.record_player_income(doc, player, ledger)
+        d = market_shares.loc[market, 'Demand at $1'].values
+        market_shares.loc[market, 'Demand Share'] = d / d.sum()
 
-        # Update the income by industry for each player
-        names = industries['Industry']
-        income_breakdown = pd.concat([names, income_by_industry], axis=1)
-        seacow.record_player_income_breakdown(doc, player, income_breakdown)
+    debug()
+    print(market_shares); print()
+    return market_shares
 
-        # Update global market info on player sheets
-        #seacow.record_global_market(doc, player, global_market)
+def update_market_state(markets, market_shares, elasticities):
+    """
+    Calculate up-to-date prices for each market.
+
+    The given market data frame is modified in place.
+    """
+    n = markets.shape[0]
+    A = np.zeros((2*n, 2*n))
+    B = np.zeros((2*n, 1))
+
+    indices = {k: v for v, k in enumerate(markets.index)}
+
+    debug()
+    print(markets); print()
+    print(market_shares); print()
+    print(elasticities); print()
+
+    for market in markets.index:
+        i = 2 * indices[market]
+
+        B[i+0,0] = market_shares.loc[market, 'Demand at $1'].sum()
+        B[i+1,0] = market_shares.loc[market, 'Supply at $1'].sum()
+
+    for (market, rel_market), row in elasticities.iterrows():
+        i = 2 * indices[market]
+        j = 2 * indices[rel_market]
+
+        A[i+0,j+0] = (i == j)
+        A[i+1,j+0] = (i == j)
+        A[i+0,j+1] = row['Demand Elasticity']
+        A[i+1,j+1] = -row['Supply Elasticity']
+
+    x = exp(np.linalg.solve(A, log(B)))
+
+    print(A); print()
+    print(B); print()
+    print(x); print()
+
+    for market, index in indices.items():
+        i = 2 * index
+
+        markets.loc[market, 'Quantity'] = x[i+0,0]
+        markets.loc[market, 'Price'] = x[i+1,0]
+
+    markets['Total Value'] = markets['Quantity'] * markets['Price']
+    print(markets); print()
+
+def update_player_incomes(markets, market_shares, player_incomes):
+    """
+    Calculate how much income the players earned from their investments this 
+    turn.
+
+    The total value of each market is the quantity times the price.  Both of 
+    these values are given by the *markets* data frame.  The players earn this 
+    amount time their share of the supply for the relevant market.  These 
+    shares are given by the *market_shares* data frame.
+
+    The *player_incomes* data frame is updated in place.  Specifically, a new 
+    row representing the current turn is added for each player.
+    """
+    market_shares = market_shares.drop('World', level='Player')
+
+    df = pd.merge(
+            market_shares, markets['Total Value'],
+            left_index=True,
+            right_index=True,
+    )
+    df['Income'] = df['Total Value'] * df['Supply Share']
+
+    incomes = df['Income'].groupby('Player').agg('sum')
+    turn = player_incomes.index.unique('Turn').max() + 1
+
+    # There aren't a lot of good ways to update a data frame in place.  (Which 
+    # is reasonable; growing a data frame always requires copying the entire 
+    # thing, and should generally be avoided).  However, in this case it's what 
+    # we want, so we have to resort to a for-loop to make it happen.
+
+    for player, income in incomes.iteritems():
+        player_incomes.loc[(player, turn), 'Income'] = income
+
+    player_incomes.sort_index(inplace=True)
+
+def concat_player_investments(player_new_investments, player_existing_investments):
+    s = pd.concat([
+        player_new_investments['New Investments'],
+        player_existing_investments['Existing Investments'],
+    ])
+    s.name = 'Existing Investments'
+    return s.to_frame()
 
 
 if __name__ == '__main__':
     doc = seacow.load_doc()
-    update_turn(doc, breather_time=None)
-    seacow.record_status(doc, "Play your turn")
+    update_turn(doc)
+

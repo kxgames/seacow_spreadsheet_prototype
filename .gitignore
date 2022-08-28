@@ -4,3 +4,7 @@
 .unenv
 
 __pycache__/
+
+*.lyx
+*.lyx~
+*.pdf

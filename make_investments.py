@@ -1,44 +1,35 @@
 #!/usr/bin/env python3
 
 import seacow
+import pandas as pd
 from itertools import count
 
 doc = seacow.load_doc()
-industries = seacow.load_industries(doc)
-interactions = seacow.load_industry_interactions(doc)
+markets = seacow.load_markets(doc)
 
 investments = []
 effects = []
 prices = [50, 100, 200, 400]
 supplies = [10, 50, 200, 800]
-demands = [5, 25, 100, 400]
+demands = [0, 0, 0, 0]
 
-for industry in industries['Industry']:
+for market in markets.index:
     for i, price, supply, demand in zip(count(1), prices, supplies, demands):
-        name = f'{industry}{i}'
+        name = f'{market}{i}'
 
         investments.append({
             'Investment': name,
-            'Industry': industry,
+            'Market': market,
             'Price': price,
         })
 
         effects.append({
             'Investment': name,
-            'Industry': industry,
-            'Effect': 'Supply',
-            'Value': supply,
+            'Market': market,
+            'Marginal Supply at $1': supply,
+            'Marginal Demand at $1': demand,
         })
 
-        relevant = (interactions['Industry 1'] == industry)
-        for _, interaction in interactions[relevant].iterrows():
-            effects.append({
-                'Investment': name,
-                'Industry': interaction['Industry 2'],
-                'Effect': 'Demand',
-                'Value': demand * interaction['Interaction'],
-            })
-
-seacow.record_investments(doc, investments)
-seacow.record_investment_effects(doc, effects)
+seacow.record_investments(doc, pd.DataFrame(investments))
+seacow.record_investment_effects(doc, pd.DataFrame(effects))
 
