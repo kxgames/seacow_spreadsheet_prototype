@@ -3,7 +3,8 @@
 
 """\
 Usage:
-    make_map.py [-r <seed>] [-w <width>] [-h <height>] [-n <n_cells>] [-D <method>] [-U]
+    make_map.py [-r <seed>] [-w <width>] [-h <height>] [-n <n_cells>] [-D <method>] [-a <avg_density>] [-U]
+    
 
 Options:
     -r --random-seed <int or 'time'>      [default: time]
@@ -25,6 +26,12 @@ Options:
         'uniform' and 'grid-rectangular'. The grid methods may need to use 
         more or less cells than directed with the --n-cells argument in order 
         to keep a regular grid structure.
+
+    -a --avg-resource-density <float>       [default: 1.5]
+        The map-averaged resource density target when assigning resources to 
+        tiles. The actual map-average may be slightly different.
+        e.g. Given an average of 1.5, there will be ceiling(1.5 * n_cells) 
+        resources total for the whole map that are assigned to tiles randomly.
 
     -U --no-upload
         Don't upload the resulting market interactions to Google drive.
@@ -146,8 +153,8 @@ sheet_tile_neighbors = pd.DataFrame(
         )
 
 ## Distribute resources
-map_resource_density = 1.5
-total_resource_count = floor(map_resource_density * n_cells)
+map_resource_density = float(args['--avg-resource-density'])
+total_resource_count = ceil(map_resource_density * n_cells)
 resource_tiles = np_rng.choice(tile_labels, total_resource_count)
 resource_names = np_rng.choice(resources, total_resource_count)
 sheet_tile_resources = pd.DataFrame(
