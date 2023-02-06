@@ -7,3 +7,4 @@ networkx
 pygraphviz
 gspread
 docopt
+scipy

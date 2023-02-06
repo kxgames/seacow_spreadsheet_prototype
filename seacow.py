@@ -105,6 +105,17 @@ def record_investment_effects(doc, df):
     clear_sheet(doc, "Investment Effects")
     record_df(doc, "Investment Effects", df)
 
+def record_map_tiles(doc, tile_locations_df, edges_df):
+    clear_sheet(doc, "Map Tiles")
+    record_df(doc, "Map Tiles", tile_locations_df)
+
+    clear_sheet(doc, "Map Edges")
+    record_df(doc, "Map Edges", edges_df)
+
+def record_map_resources(doc, resources_df):
+    clear_sheet(doc, "Map Resources")
+    record_df(doc, "Map Resources", resources_df)
+
 def record_player_incomes(doc, df):
     record_player_df(doc, df, range='A:B', index=True)
 
