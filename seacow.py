@@ -36,16 +36,16 @@ def load_status(doc):
     return status
 
 def load_markets(doc):
-    return load_df(doc, "Markets", index=["Market"])
+    return load_df(doc, 'Markets', index=['Market'])
 
 def load_elasticities(doc):
-    return load_df(doc, "Elasticities", index=["Market", "Related Market"])
+    return load_df(doc, 'Elasticities', index=['Market', 'Related Market'])
 
 def load_investments(doc):
-    return load_df(doc, "Investments", index=["Investment"])
+    return load_df(doc, 'Investments', index=['Investment'])
 
 def load_investment_effects(doc):
-    return load_df(doc, "Investment Effects", index=["Investment", "Market"])
+    return load_df(doc, 'Investment Effects', index=['Investment', 'Market'])
 
 def load_player_incomes(doc):
     return load_player_df(doc, range='A:B', index=['Player', 'Turn'])
@@ -78,7 +78,7 @@ def load_player_df(doc, *, range=None, index=None):
     dfs = []
 
     for player in PLAYERS:
-        df = load_df(doc, f"Player {player}", range=range)
+        df = load_df(doc, f'Player {player}', range=range)
         df['Player'] = player
         dfs.append(df)
 
@@ -94,40 +94,40 @@ def record_markets(doc, df):
     record_df(doc, "Markets", df, index=True)
 
 def record_elasticities(doc, df):
-    clear_sheet(doc, "Elasticities")
-    record_df(doc, "Elasticities", df)
+    clear_sheet(doc, 'Elasticities')
+    record_df(doc, 'Elasticities', df)
 
 def record_investments(doc, df):
-    clear_sheet(doc, "Investments")
-    record_df(doc, "Investments", df)
+    clear_sheet(doc, 'Investments')
+    record_df(doc, 'Investments', df)
 
 def record_investment_effects(doc, df):
-    clear_sheet(doc, "Investment Effects")
-    record_df(doc, "Investment Effects", df)
+    clear_sheet(doc, 'Investment Effects')
+    record_df(doc, 'Investment Effects', df)
 
 def record_map_tiles(doc, tile_locations_df, edges_df):
-    clear_sheet(doc, "Map Tiles")
-    record_df(doc, "Map Tiles", tile_locations_df)
+    clear_sheet(doc, 'Map Tiles')
+    record_df(doc, 'Map Tiles', tile_locations_df)
 
-    clear_sheet(doc, "Map Edges")
-    record_df(doc, "Map Edges", edges_df)
+    clear_sheet(doc, 'Map Edges')
+    record_df(doc, 'Map Edges', edges_df)
 
 def record_map_resources(doc, resources_df):
-    clear_sheet(doc, "Map Resources")
-    record_df(doc, "Map Resources", resources_df)
+    clear_sheet(doc, 'Map Resources')
+    record_df(doc, 'Map Resources', resources_df)
 
 def record_player_incomes(doc, df):
     record_player_df(doc, df, range='A:B', index=True)
 
 def record_player_income_breakdown(doc, player, df):
-    record_df(doc, f"Player {player}", df, range='I:J')
+    record_df(doc, f'Player {player}', df, range='I:J')
 
 def record_global_market(doc, player, df):
-    record_df(doc, f"Player {player}", df, range='H:K')
+    record_df(doc, f'Player {player}', df, range='H:K')
 
 def record_player_intel(doc, player, df):
-    clear_sheet(doc, f"Player {player} Intel")
-    record_df(doc, f"Player {player} Intel", df)
+    clear_sheet(doc, f'Player {player} Intel')
+    record_df(doc, f'Player {player} Intel', df)
 
 def record_player_investments(doc, df):
     df = df.sort_values('Existing Investments')
