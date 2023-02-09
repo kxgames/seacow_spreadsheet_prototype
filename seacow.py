@@ -47,6 +47,15 @@ def load_investments(doc):
 def load_investment_effects(doc):
     return load_df(doc, 'Investment Effects', index=['Investment', 'Market'])
 
+def load_map_tiles(doc):
+    return load_df(doc, 'Map Tiles', index=['Tile'])
+
+def load_map_edges(doc):
+    return load_df(doc, 'Map Edges')
+
+def load_map_resources(doc):
+    return load_df(doc, 'Map Resources', index=['Tile'])
+
 def load_player_incomes(doc):
     return load_player_df(doc, range='A:B', index=['Player', 'Turn'])
 
