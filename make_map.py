@@ -55,6 +55,16 @@ import matplotlib.pyplot as plt
 
 from math import *
 
+def set_random_seed(args):
+    seed = args['--random-seed']
+    if seed == 'time':
+        seed = time.time_ns()
+    else:
+        seed = int(seed)
+    print(f"Using random seed {seed}")
+    #random.seed(seed)
+    np_rng = np.random.default_rng(seed)
+    return np_rng
 def make_rectangular_grid_points(target_n, map_width, map_height, max_random_offset=0.5):
     """
     Create a rectangular grid of points that are evenly spaced from 0 to 
@@ -352,36 +362,72 @@ def make_hex_grid_points(target_n, map_width, map_height, max_random_offset=0.5)
 
     return grid_points
 
+def print_data(data_dict):
+    for name, data in data_dict.items():
+        print(name)
+        print(data)
+
+def plot_voronoi(voronoi_map, tile_labels, tile_resources, map_width, map_height, fig_max_inches=10):
+    # Plot voronoi diagram
+    vor_fig = scipy.spatial.voronoi_plot_2d(voronoi_map)
+    vor_ax = vor_fig.get_axes()[0]
+    vor_ax.set_aspect('equal')
+    vor_ax.set_xlim(0,map_width)
+    vor_ax.set_ylim(0,map_height)
+
+    AR = map_width / map_height
+    if AR > 1: # wide map
+        vor_fig.set_size_inches((fig_max_inches, fig_max_inches / AR))
+    elif AR < 1: # tall map
+        vor_fig.set_size_inches((fig_max_inches * AR, fig_max_inches))
+    else: # square map
+        vor_fig.set_size_inches((fig_max_inches, fig_max_inches))
+    #plt.tight_layout()
+
+    label_offset = (map_width/100, map_height/100) # 1% of map extent
+    for label, p in zip(tile_labels, voronoi_map.points):
+        if label in tile_resources:
+            msg = f"{label}-{''.join(tile_resources.loc[label])}"
+        else:
+            msg = f"{label}--"
+        vor_ax.text(p[0] + label_offset[0], p[1] + label_offset[1], msg)
+
+    plt.show()
+def generate_resources(resource_types, tile_labels, n_cells, map_resource_density):
+    total_resource_count = ceil(map_resource_density * n_cells)
+    resource_tiles = np_rng.choice(tile_labels, total_resource_count)
+    resource_names = np_rng.choice(resource_types, total_resource_count)
+    sheet_tile_resources = pd.DataFrame(
+            zip(resource_tiles, resource_names),
+            columns=['Tile', 'Resource'],
+            )
+    sheet_tile_resources.sort_values(['Tile', 'Resource'], inplace=True, ignore_index=True)
+    return sheet_tile_resources
+""""""
+## Parse arguments
 args = docopt.docopt(__doc__)
-
-seed = args['--random-seed']
-if seed == 'time':
-    seed = time.time_ns()
-else:
-    seed = int(seed)
-print(f"Using random seed {seed}")
-#random.seed(seed)
-np_rng = np.random.default_rng(seed)
-
+np_rng = set_random_seed(args)
 map_width = int(args['--map-width'])
 map_height = int(args['--map-height'])
 n_cells = int(args['--n-cells'])
+distribution_method = args['--cell-distribution-method']
+offset_radius_ratio = float(args['--offset-radius-ratio'])
+map_resource_density = float(args['--avg-resource-density'])
+
 assert map_width > 0
 assert map_height > 0
 assert n_cells > 0
 
-# Set up Seacow docs and load available resources
+## Set up Seacow docs and load available resources
 doc = seacow.load_doc()
 sheet_markets = seacow.load_markets(doc)
-resources = sheet_markets.index.values
+resource_types = sheet_markets.index.values
 #print("Temporarily hardcoding resources")
-#resources = np.array(['A', 'B', 'C', 'D'])
+#resource_types = np.array(['A', 'B', 'C', 'D'])
 
 ## Generate a set of random points
 # For now using a uniform distribution for simplicity.
 # Will need to fix later because points can be too close
-distribution_method = args['--cell-distribution-method']
-offset_radius_ratio = float(args['--offset_radius_ratio'])
 if distribution_method == 'uniform':
     points = np_rng.uniform((0,0), (map_width, map_height), (n_cells, 2))
 
@@ -406,7 +452,7 @@ n_cells = points.shape[0]
 tile_labels = np.arange(n_cells)
 
 ## Generate the voronoi diagram
-voronoi = scipy.spatial.Voronoi(points)
+voronoi_map = scipy.spatial.Voronoi(points)
 
 ## Generate dataframes for the Voronoi map
 sheet_tile_locations = pd.DataFrame(
@@ -415,20 +461,12 @@ sheet_tile_locations = pd.DataFrame(
         )
 
 sheet_tile_neighbors = pd.DataFrame(
-        voronoi.ridge_points,
+        voronoi_map.ridge_points,
         columns=['Tile 1', 'Tile 2'],
         )
 
 ## Distribute resources
-map_resource_density = float(args['--avg-resource-density'])
-total_resource_count = ceil(map_resource_density * n_cells)
-resource_tiles = np_rng.choice(tile_labels, total_resource_count)
-resource_names = np_rng.choice(resources, total_resource_count)
-sheet_tile_resources = pd.DataFrame(
-        zip(resource_tiles, resource_names),
-        columns=['Tile', 'Resource'],
-        )
-sheet_tile_resources.sort_values(['Tile', 'Resource'], inplace=True, ignore_index=True)
+sheet_tile_resources = generate_resources(resource_types, tile_labels, n_cells, map_resource_density)
 tile_resources = sheet_tile_resources.groupby(by='Tile')['Resource'].apply(list)
 
 ## Upload information to Google Docs
@@ -438,39 +476,10 @@ if not args['--no-upload']:
     seacow.record_map_resources(doc, sheet_tile_resources)
 
 else:
-    # Print information about the cells
-    print("Tile locations sheet:")
-    print(sheet_tile_locations)
-    print("Tile connections sheet:")
-    print(sheet_tile_neighbors)
-    print("Resources by tile:")
-    #print(sheet_tile_resources)
-    print(tile_resources)
-
-    # Plot voronoi diagram
-    vor_fig = scipy.spatial.voronoi_plot_2d(voronoi)
-    vor_ax = vor_fig.get_axes()[0]
-    vor_ax.set_aspect('equal')
-    vor_ax.set_xlim(0,map_width)
-    vor_ax.set_ylim(0,map_height)
-
-    screen_max_length = 10
-    AR = map_width / map_height
-    if AR > 1: # wide map
-        vor_fig.set_size_inches((screen_max_length, screen_max_length / AR))
-    elif AR < 1: # tall map
-        vor_fig.set_size_inches((screen_max_length * AR, screen_max_length))
-    else: # square map
-        vor_fig.set_size_inches((screen_max_length, screen_max_length))
-    #plt.tight_layout()
-
-    label_offset = (map_width/100, map_height/100) # 1% of map extent
-    for label, p in zip(tile_labels, points):
-        if label in tile_resources:
-            msg = f"{label}-{''.join(tile_resources.loc[label])}"
-        else:
-            msg = f"{label}--"
-        vor_ax.text(p[0] + label_offset[0], p[1] + label_offset[1], msg)
-
-    plt.show()
-
+    print_data({
+        "Tile locations sheet:" : sheet_tile_locations,
+        "Tile connections sheet:" : sheet_tile_neighbors,
+        #"Tile resources sheet:" : sheet_tile_resources,
+        "Resources by tile:" : tile_resources,
+        })
+    plot_voronoi(voronoi_map, tile_labels, tile_resources, map_width, map_height)
