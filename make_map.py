@@ -235,10 +235,10 @@ def _estimate_hex_grid_dimensions(target_n, map_width, map_height):
     if nx_discriminant < 0 or ny_discriminant < 0:
         # One or both of nx and ny does not have a solution
         # Print stuff then terminate
-        print(f"  Unhandled situation: too few solutions!")
-        print(f"  nx_discriminant = {nx_discriminant}")
-        print(f"  ny_discriminant = {nx_discriminant}")
-        assert False
+        msg = '\n'.join(f"  Unhandled situation: too few solutions!",
+                f"  nx_discriminant = {nx_discriminant}"
+                f"  ny_discriminant = {nx_discriminant}")
+        raise ValueError(msg)
 
     else:
         # Both nx and ny have one or more solutions
@@ -277,10 +277,11 @@ def _estimate_hex_grid_dimensions(target_n, map_width, map_height):
                 too_many = True
 
         if too_many:
-            print(f"  Unhandled situation: too many positive solutions!")
-            print(f"  nx = {nx_sub} or {nx_add} (or {nx})")
-            print(f"  ny = {ny_sub} or {ny_add} (or {ny})")
-            assert False
+            msg = '\n'.join(
+                    f"  Unhandled situation: too many positive solutions!",
+                    f"  nx = {nx_sub} or {nx_add} (or {nx})",
+                    f"  ny = {ny_sub} or {ny_add} (or {ny})")
+            raise ValueError(msg)
 
     assert nx > 0 and ny > 0
     print()
@@ -367,9 +368,15 @@ def print_data(data_dict):
         print(name)
         print(data)
 
-def plot_voronoi(voronoi_map, tile_labels, tile_resources, map_width, map_height, fig_max_inches=10):
+def plot_voronoi(
+        voronoi_map, tile_labels, tile_resources, sheet_tile_locations, 
+        map_width, map_height,
+        fig_max_inches=10, show_labels=True
+        ):
     # Plot voronoi diagram
-    vor_fig = scipy.spatial.voronoi_plot_2d(voronoi_map)
+    vor_fig = scipy.spatial.voronoi_plot_2d(voronoi_map,
+            show_points=False, show_vertices=False,
+            )
     vor_ax = vor_fig.get_axes()[0]
     vor_ax.set_aspect('equal')
     vor_ax.set_xlim(0,map_width)
@@ -384,15 +391,34 @@ def plot_voronoi(voronoi_map, tile_labels, tile_resources, map_width, map_height
         vor_fig.set_size_inches((fig_max_inches, fig_max_inches))
     #plt.tight_layout()
 
-    label_offset = (map_width/100, map_height/100) # 1% of map extent
-    for label, p in zip(tile_labels, voronoi_map.points):
-        if label in tile_resources:
-            msg = f"{label}-{''.join(tile_resources.loc[label])}"
-        else:
-            msg = f"{label}--"
-        vor_ax.text(p[0] + label_offset[0], p[1] + label_offset[1], msg)
+    # Owner styles
+    owner_styles = {
+            -1: {'c' : 'none'          , 's' : 20, 'edgecolors' : 'grey'},
+            0 : {'c' : 'grey'          , 's' : 30, 'edgecolors' : 'black'},
+            1 : {'c' : 'tomato'        , 's' : 40, 'edgecolors' : 'black'},
+            2 : {'c' : 'cornflowerblue', 's' : 40, 'edgecolors' : 'black'},
+            }
+    groups = sheet_tile_locations.groupby('Owner')
+    for name, group_df in groups:
+        owner_style = owner_styles[-1]
+        if name in owner_styles:
+            owner_style = owner_styles[name]
+        vor_ax.scatter(group_df.loc[:,'X'], group_df.loc[:,'Y'], **owner_style)
+
+    # Resource Labels
+    if show_labels:
+        label_offset = (map_width/100, map_height/100) # 1% of map extent
+        for label, p in zip(tile_labels, voronoi_map.points):
+            if label in tile_resources:
+                msg = f"{label}-{''.join(tile_resources.loc[label])}"
+            else:
+                msg = f"{label}--"
+            #lx, ly = p[0] + label_offset[0], p[1] + label_offset[1]
+            lx, ly = p[0], p[1] + label_offset[1]
+            vor_ax.text(lx, ly, msg, horizontalalignment='center')
 
     plt.show()
+
 def generate_resources(resource_types, tile_labels, n_cells, map_resource_density):
     total_resource_count = ceil(map_resource_density * n_cells)
     resource_tiles = np_rng.choice(tile_labels, total_resource_count)
@@ -404,6 +430,7 @@ def generate_resources(resource_types, tile_labels, n_cells, map_resource_densit
     sheet_tile_resources.sort_values(['Tile', 'Resource'], inplace=True, ignore_index=True)
     return sheet_tile_resources
 """"""
+
 ## Parse arguments
 args = docopt.docopt(__doc__)
 np_rng = set_random_seed(args)
@@ -446,8 +473,7 @@ elif distribution_method == 'min-distance':
     raise NotImplementedError
 
 else:
-    print(f"Distribution type '{distribution_method}' is not recognized")
-    assert False
+    raise ValueError(f"Distribution type '{distribution_method}' is not recognized")
 n_cells = points.shape[0]
 tile_labels = np.arange(n_cells)
 
@@ -456,10 +482,9 @@ voronoi_map = scipy.spatial.Voronoi(points)
 
 ## Generate dataframes for the Voronoi map
 sheet_tile_locations = pd.DataFrame(
-        zip(tile_labels, points[:,0], points[:,1]),
-        columns=['Tile', 'X', 'Y'],
+        zip(tile_labels, points[:,0], points[:,1], -np.ones(n_cells, dtype=int)),
+        columns=['Tile', 'X', 'Y', 'Owner'],
         )
-
 sheet_tile_neighbors = pd.DataFrame(
         voronoi_map.ridge_points,
         columns=['Tile 1', 'Tile 2'],
@@ -468,6 +493,62 @@ sheet_tile_neighbors = pd.DataFrame(
 ## Distribute resources
 sheet_tile_resources = generate_resources(resource_types, tile_labels, n_cells, map_resource_density)
 tile_resources = sheet_tile_resources.groupby(by='Tile')['Resource'].apply(list)
+
+## Pick starting locations
+def _in_doughnut_zone(points, map_width, map_height, n_players=2, shape='rectangular'):
+    half_width = map_width / 2
+    half_height = map_height / 2
+    x_min, x_max = 1/4 * half_width , 3/4 * half_width
+    y_min, y_max = 1/4 * half_height, 3/4 * half_height
+    centered_points = points - np.array([half_width, half_height])
+    quadrant_points = np.fabs(centered_points)
+    def _in_square(x, y):
+        inside_outer_box = ((x <= x_max) & (y <= y_max))
+        outside_inner_box = (x_min <= x) | (y_min <= y)
+        return inside_outer_box & outside_inner_box
+
+    def _in_ellipse(x, y):
+        inside_outer_ring  = (x**2 / x_max**2 + y**2 / y_max**2) <= 1
+        outside_inner_ring = (x**2 / x_min**2 + y**2 / y_min**2) >= 1
+        return inside_outer_ring & outside_inner_ring
+    
+    if shape == 'rectangular':
+        return _in_square(quadrant_points[:, 0], quadrant_points[:,1])
+    elif shape == 'ellipse':
+        return _in_ellipse(quadrant_points[:, 0], quadrant_points[:,1])
+    else:
+        raise ValueError(f"Unknown shape argument {shape}!")
+def _filter_resources(sheet_tile_resources, target_n_resources):
+    raise NotImplementedError
+    resource_count = sheet_tile_resources.groupby(by='Tile').count()
+    resource_count.rename(columns={'Resource' : 'Resource Count'}, inplace=True)
+    return (resource_count == target_n_resources).values.flatten()
+
+def pick_starting_locations(points, tile_labels, sheet_tile_resources, map_width, map_height, n_players=2, shape='rectangular'):
+    # Identify tiles which fall in a "doughnut" zone around the center and have 
+    # two resources. Doughnut can be rectangular or elliptical.
+    assert points.shape[0] >= n_players
+    is_in_zone = _in_doughnut_zone(points, map_width, map_height, shape=shape)
+    #has_resources = _filter_resources(sheet_tile_resources, 3)
+    #print(tile_labels.shape)
+    #print(has_resources.shape)
+    #print(tile_labels[has_resources])
+    #assert False
+
+    tiles = tile_labels[is_in_zone]
+
+    return {tile_id : 0 for tile_id in tiles}
+
+starting_dict = pick_starting_locations(
+        points, tile_labels, sheet_tile_resources, 
+        map_width, map_height, 
+        #shape='rectangular',
+        shape='ellipse',
+        )
+for tile_id, player_id in starting_dict.items():
+    sheet_tile_locations.loc[tile_id, 'Owner'] = player_id
+#sheet_tile_ownership = pd.DataFrame(index='Tile', columns=('Tile', 'Turn', 'Player'))
+
 
 ## Upload information to Google Docs
 if not args['--no-upload']:
@@ -482,4 +563,7 @@ else:
         #"Tile resources sheet:" : sheet_tile_resources,
         "Resources by tile:" : tile_resources,
         })
-    plot_voronoi(voronoi_map, tile_labels, tile_resources, map_width, map_height)
+    plot_voronoi(voronoi_map, 
+            tile_labels, tile_resources, sheet_tile_locations,
+            map_width, map_height, show_labels=False
+            )
