@@ -125,6 +125,11 @@ def record_map_resources(doc, resources_df):
     clear_sheet(doc, 'Map Resources')
     record_df(doc, 'Map Resources', resources_df)
 
+def record_map_control(doc, ownership_df):
+    clear_sheet(doc, 'Map Control')
+    record_df(doc, 'Map Control', ownership_df)
+
+
 def record_player_incomes(doc, df):
     record_player_df(doc, df, range='A:B', index=True)
 

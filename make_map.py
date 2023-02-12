@@ -3,7 +3,7 @@
 
 """\
 Usage:
-    make_map.py [-r <seed>] [-w <width>] [-h <height>] [-n <n_cells>] [-D <method>] [-O <offset_radius_ratio>] [-a <avg_resource_density>] [-U]
+    make_map.py [-r <seed>] [-w <width>] [-h <height>] [-n <n_cells>] [-D <method>] [-O <offset_radius_ratio>] [-a <avg_resource_density>] [-p <n_players>] [-s <starting_n_resources] [-U]
     
 
 Options:
@@ -40,8 +40,15 @@ Options:
         e.g. Given an average of 1.5, there will be ceiling(1.5 * n_cells) 
         resources total for the whole map that are assigned to tiles randomly.
 
+    -p --n-players <int>                    [default: 2]
+        Number of players
+
+    -s --starting-n-resources <int>         [default: 3]
+        The number of resources that should be in a player's starting tile.
+
     -U --no-upload
-        Don't upload the resulting market interactions to Google drive.
+        Don't upload the information to Google drive. Instead, this option will
+        print out and plot it.
 """
 
 import docopt
@@ -368,8 +375,7 @@ def print_data(data_dict):
         print(name)
         print(data)
 
-def plot_voronoi(
-        voronoi_map, tile_labels, tile_resources, sheet_tile_locations, 
+def plot_voronoi( voronoi_map, points_df,
         map_width, map_height,
         fig_max_inches=10, show_labels=True
         ):
@@ -398,37 +404,127 @@ def plot_voronoi(
             1 : {'c' : 'tomato'        , 's' : 40, 'edgecolors' : 'black'},
             2 : {'c' : 'cornflowerblue', 's' : 40, 'edgecolors' : 'black'},
             }
-    groups = sheet_tile_locations.groupby('Owner')
-    for name, group_df in groups:
+    owner_groups = points_df.groupby('Owner')
+    for owner, group_df in owner_groups:
         owner_style = owner_styles[-1]
-        if name in owner_styles:
-            owner_style = owner_styles[name]
+        if owner in owner_styles:
+            owner_style = owner_styles[owner]
         vor_ax.scatter(group_df.loc[:,'X'], group_df.loc[:,'Y'], **owner_style)
 
     # Resource Labels
     if show_labels:
         label_offset = (map_width/100, map_height/100) # 1% of map extent
-        for label, p in zip(tile_labels, voronoi_map.points):
-            if label in tile_resources:
-                msg = f"{label}-{''.join(tile_resources.loc[label])}"
-            else:
-                msg = f"{label}--"
+        for label, p in zip(points_df.index.values, voronoi_map.points):
+            msg = f"{label}-{''.join(points_df.loc[label, 'Resources'])}"
             #lx, ly = p[0] + label_offset[0], p[1] + label_offset[1]
             lx, ly = p[0], p[1] + label_offset[1]
             vor_ax.text(lx, ly, msg, horizontalalignment='center')
 
     plt.show()
 
-def generate_resources(resource_types, tile_labels, n_cells, map_resource_density):
+def generate_resources(points_df, resource_types, map_resource_density):
+    n_cells = points_df.shape[0]
     total_resource_count = ceil(map_resource_density * n_cells)
-    resource_tiles = np_rng.choice(tile_labels, total_resource_count)
+    resource_tiles = np_rng.choice(points_df.index.values, total_resource_count)
     resource_names = np_rng.choice(resource_types, total_resource_count)
-    sheet_tile_resources = pd.DataFrame(
+    resources_df = pd.DataFrame(
             zip(resource_tiles, resource_names),
             columns=['Tile', 'Resource'],
             )
-    sheet_tile_resources.sort_values(['Tile', 'Resource'], inplace=True, ignore_index=True)
-    return sheet_tile_resources
+    resources_df.sort_values(['Tile', 'Resource'], inplace=True, ignore_index=True)
+    return resources_df
+def _in_doughnut_zone(points_df, map_width, map_height, n_players=2, shape='rectangular'):
+    half_width = map_width / 2
+    half_height = map_height / 2
+    x_min, x_max = 1/4 * half_width , 3/4 * half_width
+    y_min, y_max = 1/4 * half_height, 3/4 * half_height
+    centered_points = points_df.loc[:, ('X', 'Y')].values - np.array([half_width, half_height])
+    quadrant_points = np.fabs(centered_points)
+    def _in_square(x, y):
+        inside_outer_box = ((x <= x_max) & (y <= y_max))
+        outside_inner_box = (x_min <= x) | (y_min <= y)
+        return inside_outer_box & outside_inner_box
+
+    def _in_ellipse(x, y):
+        inside_outer_ring  = (x**2 / x_max**2 + y**2 / y_max**2) <= 1
+        outside_inner_ring = (x**2 / x_min**2 + y**2 / y_min**2) >= 1
+        return inside_outer_ring & outside_inner_ring
+    
+    if shape == 'rectangular':
+        return _in_square(quadrant_points[:, 0], quadrant_points[:,1])
+    elif shape == 'ellipse':
+        return _in_ellipse(quadrant_points[:, 0], quadrant_points[:,1])
+    else:
+        raise ValueError(f"Unknown shape argument {shape}!")
+
+def _filter_resources(points_df, target_n_resources):
+    return (points_df['Resource Count'] == target_n_resources).values
+
+def determine_ownership(points_df, map_width, map_height, target_n_resources, n_players=2, shape='rectangular'):
+    # Identify tiles which fall in a "doughnut" zone around the center and have 
+    # two resources. Doughnut can be rectangular or elliptical.
+    assert points_df.shape[0] >= n_players
+    ownership = pd.Series(- 1, index=points_df.index, name='Owner')
+
+    # Calculate the doughnut zone
+    is_in_zone = _in_doughnut_zone(points_df, map_width, map_height, shape=shape)
+    if is_in_zone.sum() < n_players:
+        # Ignore the doughnut zone because it's too small.
+        is_in_zone[:] = True
+
+    ## Check resource availability
+    #has_resources = _filter_resources(points_df, target_n_resources)
+    #is_habitable = is_in_zone & has_resources
+    #if is_habitable.sum() < n_players:
+    #    # Ignore the resource targets because too few meet the requirements
+    #    # Will manually add resource later
+    #    is_habitable = is_in_zone
+    is_habitable = is_in_zone
+
+    # Choose starting locations from habitable locations
+    ownership[is_habitable] = 0
+    tile_options = ownership.index.values[is_habitable]
+
+    starting_locations = np_rng.choice(tile_options, n_players)
+    for owner_id, tile_id in zip(np.arange(1, n_players+1), starting_locations):
+        ownership[tile_id] = owner_id
+    return ownership
+
+def fix_starting_resources(points_df, resources_df, resource_types, target_n_resources):
+    for tile_id in points_df.index[points_df['Owner'] >= 1]:
+        resource_count = points_df.loc[tile_id, 'Resource Count']
+        n_change = target_n_resources - resource_count
+        if n_change > 0:
+            # Add resources to tile
+            print(f"Creating {n_change} new resources at tile {tile_id}")
+            new_resources = np_rng.choice(resource_types, n_change).tolist()
+            points_df.loc[tile_id, 'Resource Count'] = target_n_resources
+            existing_resources = points_df.loc[tile_id, 'Resources']
+            points_df.at[tile_id, 'Resources'] = existing_resources + new_resources
+            new_resources_df = pd.DataFrame({
+                'Tile' : [tile_id] * n_change,
+                'Resource' : new_resources,
+                })
+            resources_df = pd.concat([resources_df, new_resources_df], ignore_index=True)
+
+        elif n_change < 0:
+            # Remove resources from tile
+            print(f"Deleting {-n_change} resources at tile {tile_id}")
+            tile_entries = resources_df[resources_df['Tile'] == tile_id]
+            indices_to_keep = tile_entries.index.values[:n_change]
+            indices_to_drop = tile_entries.index.values[n_change:]
+            resources_df.drop(indices_to_drop, axis=0, inplace=True)
+            updated_list = resources_df.loc[indices_to_keep, 'Resource'].tolist()
+
+            points_df.loc[tile_id, 'Resource Count'] = target_n_resources
+            points_df.at[tile_id, 'Resources'] = updated_list
+        else:
+            # No change needed
+            continue
+
+    resources_df.sort_values(['Tile', 'Resource'], inplace=True, ignore_index=True)
+    return points_df, resources_df
+
 """"""
 
 ## Parse arguments
@@ -440,6 +536,8 @@ n_cells = int(args['--n-cells'])
 distribution_method = args['--cell-distribution-method']
 offset_radius_ratio = float(args['--offset-radius-ratio'])
 map_resource_density = float(args['--avg-resource-density'])
+n_players = int(args['--n-players'])
+starting_n_resources = int(args['--starting-n-resources'])
 
 assert map_width > 0
 assert map_height > 0
@@ -453,8 +551,6 @@ resource_types = sheet_markets.index.values
 #resource_types = np.array(['A', 'B', 'C', 'D'])
 
 ## Generate a set of random points
-# For now using a uniform distribution for simplicity.
-# Will need to fix later because points can be too close
 if distribution_method == 'uniform':
     points = np_rng.uniform((0,0), (map_width, map_height), (n_cells, 2))
 
@@ -474,96 +570,60 @@ elif distribution_method == 'min-distance':
 
 else:
     raise ValueError(f"Distribution type '{distribution_method}' is not recognized")
-n_cells = points.shape[0]
-tile_labels = np.arange(n_cells)
+points_df = pd.DataFrame(points, columns=['X', 'Y'])
+points_df.index.name = 'Tile'
+n_cells = points_df.shape[0]
 
 ## Generate the voronoi diagram
 voronoi_map = scipy.spatial.Voronoi(points)
 
-## Generate dataframes for the Voronoi map
-sheet_tile_locations = pd.DataFrame(
-        zip(tile_labels, points[:,0], points[:,1], -np.ones(n_cells, dtype=int)),
-        columns=['Tile', 'X', 'Y', 'Owner'],
-        )
-sheet_tile_neighbors = pd.DataFrame(
-        voronoi_map.ridge_points,
-        columns=['Tile 1', 'Tile 2'],
-        )
-
 ## Distribute resources
-sheet_tile_resources = generate_resources(resource_types, tile_labels, n_cells, map_resource_density)
-tile_resources = sheet_tile_resources.groupby(by='Tile')['Resource'].apply(list)
+resources_df = generate_resources(points_df, resource_types, map_resource_density)
+resource_groups = resources_df.groupby(by='Tile')
+points_df['Resource Count'] = resource_groups['Resource'].count()
+points_df['Resources'] = resource_groups['Resource'].apply(list)
+
+# Fill Nans in resources columns
+points_df['Resource Count'] = points_df['Resource Count'].fillna(0).astype(int)
+points_df['Resources'] = points_df['Resources'].apply(lambda e: e if isinstance(e, list) else [])
 
 ## Pick starting locations
-def _in_doughnut_zone(points, map_width, map_height, n_players=2, shape='rectangular'):
-    half_width = map_width / 2
-    half_height = map_height / 2
-    x_min, x_max = 1/4 * half_width , 3/4 * half_width
-    y_min, y_max = 1/4 * half_height, 3/4 * half_height
-    centered_points = points - np.array([half_width, half_height])
-    quadrant_points = np.fabs(centered_points)
-    def _in_square(x, y):
-        inside_outer_box = ((x <= x_max) & (y <= y_max))
-        outside_inner_box = (x_min <= x) | (y_min <= y)
-        return inside_outer_box & outside_inner_box
-
-    def _in_ellipse(x, y):
-        inside_outer_ring  = (x**2 / x_max**2 + y**2 / y_max**2) <= 1
-        outside_inner_ring = (x**2 / x_min**2 + y**2 / y_min**2) >= 1
-        return inside_outer_ring & outside_inner_ring
-    
-    if shape == 'rectangular':
-        return _in_square(quadrant_points[:, 0], quadrant_points[:,1])
-    elif shape == 'ellipse':
-        return _in_ellipse(quadrant_points[:, 0], quadrant_points[:,1])
-    else:
-        raise ValueError(f"Unknown shape argument {shape}!")
-def _filter_resources(sheet_tile_resources, target_n_resources):
-    raise NotImplementedError
-    resource_count = sheet_tile_resources.groupby(by='Tile').count()
-    resource_count.rename(columns={'Resource' : 'Resource Count'}, inplace=True)
-    return (resource_count == target_n_resources).values.flatten()
-
-def pick_starting_locations(points, tile_labels, sheet_tile_resources, map_width, map_height, n_players=2, shape='rectangular'):
-    # Identify tiles which fall in a "doughnut" zone around the center and have 
-    # two resources. Doughnut can be rectangular or elliptical.
-    assert points.shape[0] >= n_players
-    is_in_zone = _in_doughnut_zone(points, map_width, map_height, shape=shape)
-    #has_resources = _filter_resources(sheet_tile_resources, 3)
-    #print(tile_labels.shape)
-    #print(has_resources.shape)
-    #print(tile_labels[has_resources])
-    #assert False
-
-    tiles = tile_labels[is_in_zone]
-
-    return {tile_id : 0 for tile_id in tiles}
-
-starting_dict = pick_starting_locations(
-        points, tile_labels, sheet_tile_resources, 
-        map_width, map_height, 
+points_df['Owner'] = determine_ownership(
+        points_df, map_width, map_height, starting_n_resources,
+        n_players=n_players,
         #shape='rectangular',
         shape='ellipse',
         )
-for tile_id, player_id in starting_dict.items():
-    sheet_tile_locations.loc[tile_id, 'Owner'] = player_id
-#sheet_tile_ownership = pd.DataFrame(index='Tile', columns=('Tile', 'Turn', 'Player'))
-
+# Fix number of resources in starting tiles
+points_df, resources_df = fix_starting_resources(
+        points_df, resources_df, resource_types, starting_n_resources
+        )
 
 ## Upload information to Google Docs
+edges_df = pd.DataFrame(voronoi_map.ridge_points, columns=['Tile 1', 'Tile 2'])
 if not args['--no-upload']:
     print("Uploading to Google Drive")
-    seacow.record_map_tiles(doc, sheet_tile_locations, sheet_tile_neighbors)
-    seacow.record_map_resources(doc, sheet_tile_resources)
+    # Format dataframes as needed
+    sheet_map_tiles = points_df.reset_index().loc[:, ['Tile', 'X', 'Y']]
+    sheet_map_edges = edges_df
+    sheet_map_resources = resources_df
+    player_tiles = points_df[points_df['Owner'] > 0]
+    sheet_map_control = pd.DataFrame({
+        'Tile' : player_tiles.index.values,
+        'Turn' : np.zeros(n_players, dtype=int),
+        'Player' : player_tiles['Owner'].values,
+        })
+
+    seacow.record_map_tiles(doc, sheet_map_tiles, sheet_map_edges)
+    seacow.record_map_resources(doc, sheet_map_resources)
+    seacow.record_map_control(doc, sheet_map_control)
 
 else:
     print_data({
-        "Tile locations sheet:" : sheet_tile_locations,
-        "Tile connections sheet:" : sheet_tile_neighbors,
-        #"Tile resources sheet:" : sheet_tile_resources,
-        "Resources by tile:" : tile_resources,
+        "Tile info dataframe:" : points_df,
+        "Edges dataframe:" : edges_df,
+        "Player init info:" : points_df[points_df['Owner'] > 0],
         })
-    plot_voronoi(voronoi_map, 
-            tile_labels, tile_resources, sheet_tile_locations,
-            map_width, map_height, show_labels=False
+    plot_voronoi(voronoi_map, points_df, map_width, map_height,
+            #show_labels=False
             )
