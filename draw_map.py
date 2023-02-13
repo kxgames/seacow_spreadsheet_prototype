@@ -9,6 +9,7 @@ Usage:
 
 import seacow
 import networkx as nx
+from math import *
 
 doc = seacow.load_doc()
 
@@ -17,11 +18,11 @@ edges = seacow.load_map_edges(doc)
 resources = seacow.load_map_resources(doc)
 
 # The coordinates will be interpreted as inches by GraphViz.  Here we scale the 
-# coordinates to fit in a reasonable area:
+# coordinates to fit in a reasonable area (2 in² per tile):
 
 xy = ['X', 'Y']
 size = tiles[xy].max().max()
-tiles[xy] *= 10 / size
+tiles[xy] *= sqrt(2 * len(tiles)) / size
 
 # Make a graph with all the information from the spreadsheets:
 
@@ -37,7 +38,8 @@ for id, (resource,) in resources.iterrows():
 
 for id in map.nodes:
     node = map.nodes[id]
-    node['label'] = ','.join(sorted(node['resources']))
+    resources = ','.join(sorted(node['resources']))
+    node['label'] = f'{id}: {resources}'
 
 viz = nx.nx_agraph.to_agraph(map)
 viz.draw('map.svg', prog='neato')

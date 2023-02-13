@@ -1,10 +1,33 @@
 #!/usr/bin/env python3
 
-import os, gspread
+import gspread
 import pandas as pd
+import backoff
+import os, sys
+
+from dataclasses import dataclass
+from collections import defaultdict
 
 PLAYERS = ['1', '2']
+EXPLORE_PRICE = 50
+EXPAND_PRICE = 50
+RECRUIT_PRICE = 50
+ATTACK_PRICE = 100
+DEFEND_PRICE = 50
+RETREAT_PRICE = 100
+KILL_PROBABILITY = 0.5
+RESOURCE_FACTOR = 5
 
+retry_politely = backoff.on_exception(
+        backoff.expo,
+        gspread.exceptions.APIError,
+        on_backoff=lambda details: print(
+            "Backing off {wait:.2f} secconds after {tries} tries".format_map(details),
+            file=sys.stderr,
+        ),
+)
+
+@retry_politely
 def load_doc(version=None):
     auth = gspread.oauth()
 
@@ -24,16 +47,8 @@ def load_doc(version=None):
 
     return auth.open_by_key(keys[version])
 
-def load_is_finished(doc):
-    sheet = doc.worksheet(f'Game Info')
-    is_finished = sheet.acell('A6').value
-    return is_finished == 'TRUE'
-
-def load_status(doc):
-    sheet = doc.worksheet('Game Info')
-    status = sheet.acell('A3').value
-
-    return status
+def load_turn(doc):
+    return int(load_cell(doc, 'Game Info', 'B1', default=1))
 
 def load_markets(doc):
     return load_df(doc, 'Markets', index=['Market'])
@@ -41,11 +56,10 @@ def load_markets(doc):
 def load_elasticities(doc):
     return load_df(doc, 'Elasticities', index=['Market', 'Related Market'])
 
-def load_investments(doc):
-    return load_df(doc, 'Investments', index=['Investment'])
-
-def load_investment_effects(doc):
-    return load_df(doc, 'Investment Effects', index=['Investment', 'Market'])
+def load_map(doc, actions):
+    tiles = seacow.load_map_tiles(doc)
+    edges = seacow.load_map_edges(doc)
+    resources = seacow.load_map_resources(doc)
 
 def load_map_tiles(doc):
     return load_df(doc, 'Map Tiles', index=['Tile'])
@@ -56,15 +70,40 @@ def load_map_edges(doc):
 def load_map_resources(doc):
     return load_df(doc, 'Map Resources', index=['Tile'])
 
-def load_player_incomes(doc):
-    return load_player_df(doc, range='A:B', index=['Player', 'Turn'])
+def load_map_exploration(doc):
+    return load_df(doc, 'Map Exploration')
 
-def load_player_new_investments(doc):
+def load_map_control(doc):
+    return load_df(doc, 'Map Control', index=['Tile', 'Turn'])
+
+def load_player_logs(doc):
+    return load_player_df(doc, range='A:B')
+
+def load_player_balances(doc):
+    return load_player_dict(doc, 'B1', required=True, cast=float)
+
+def load_player_actions(doc):
     return load_player_df(doc, range='D:D')
 
-def load_player_existing_investments(doc):
-    return load_player_df(doc, range='E:E')
+def load_player_soldiers(doc):
+    return load_player_dict(doc, 'B2', default=0, cast=int)
 
+def load_buildings(doc):
+    return load_df(doc, 'Buildings', index=['Tile', 'Building'])
+
+def load_building_prices(doc):
+    return load_df(doc, 'Building Prices', index=['Building'])
+
+def load_building_resources(doc):
+    return load_df(doc, 'Building Resources', index=['Building', 'Resource'])
+
+def load_building_effects(doc):
+    return load_df(doc, 'Building Effects', index=['Building', 'Market'])
+
+def load_battles(doc):
+    return load_df(doc, 'Battles')
+
+@retry_politely
 def load_df(doc, sheet_name, *, range=None, index=None):
     sheet = doc.worksheet(sheet_name)
     cells = sheet.get_values(range, value_render_option='UNFORMATTED_VALUE')
@@ -75,9 +114,10 @@ def load_df(doc, sheet_name, *, range=None, index=None):
     else:
         return df
 
+@retry_politely
 def load_player_df(doc, *, range=None, index=None):
     """
-    Load a dataframe containing information of each player.
+    Load a data frame containing information on each player.
 
     This is a special case, because the information for each player is stored 
     in a different spreadsheet.  So this method loads all the relevant 
@@ -93,26 +133,65 @@ def load_player_df(doc, *, range=None, index=None):
 
     df = pd.concat(dfs).dropna(how='all')
 
-    return df.set_index(index or 'Player').sort_index()
+    if index:
+        df = df.set_index(index).sort_index()
+
+    return df
+
+def load_player_dict(doc, cell, *, default=None, required=False, cast=None):
+    return {
+            player: load_cell(
+                doc,
+                f'Player {player}',
+                cell,
+                default=default,
+                required=required,
+                cast=cast,
+            )
+            for player in PLAYERS
+    }
+
+@retry_politely
+def load_cell(doc, sheet_name, cell, *, default=None, required=False, cast=None):
+    sheet = doc.worksheet(sheet_name)
+    value = sheet.acell(cell, value_render_option='UNFORMATTED_VALUE').value
+
+    if value is None:
+        value = default
+
+    if value is None and required:
+        raise ValueError(f"expected a value for {sheet_name!r}!{cell}")
+
+    if cast:
+        value = cast(value)
+
+    return value
 
 
-def record_status(doc, status):
-    record_cell(doc, 'Game Info', 'A3', status)
+def record_turn(doc, turn):
+    record_cell(doc, 'Game Info', 'B2', turn)
 
-def record_markets(doc, df):
-    record_df(doc, "Markets", df, index=True)
+def record_market_history(doc, df):
+    """
+    Add a row to the "Market History" spreadsheet, given the updated market data 
+    frame.
+    """
+    old_records = load_df(doc, 'Market History')
+
+    cols = ['Quantity', 'Price', 'Total Value']
+    new_record = df.drop(columns=df.columns.difference(cols)).reset_index()
+    new_record['Turn'] = 1 if old_records.empty else old_records['Turn'].max() + 1
+    new_record = new_record[['Turn', 'Market', *cols]]
+
+    all_records = pd.concat([new_record, old_records])
+    record_df(doc, 'Market History', all_records)
+
+def record_market_shares(doc, df):
+    record_df(doc, 'Market Shares', df, index=True)
 
 def record_elasticities(doc, df):
     clear_sheet(doc, 'Elasticities')
     record_df(doc, 'Elasticities', df)
-
-def record_investments(doc, df):
-    clear_sheet(doc, 'Investments')
-    record_df(doc, 'Investments', df)
-
-def record_investment_effects(doc, df):
-    clear_sheet(doc, 'Investment Effects')
-    record_df(doc, 'Investment Effects', df)
 
 def record_map_tiles(doc, tile_locations_df, edges_df):
     clear_sheet(doc, 'Map Tiles')
@@ -121,27 +200,63 @@ def record_map_tiles(doc, tile_locations_df, edges_df):
     clear_sheet(doc, 'Map Edges')
     record_df(doc, 'Map Edges', edges_df)
 
-def record_map_resources(doc, resources_df):
+def record_map_resources(doc, df):
     clear_sheet(doc, 'Map Resources')
-    record_df(doc, 'Map Resources', resources_df)
+    record_df(doc, 'Map Resources', df)
 
-def record_player_incomes(doc, df):
-    record_player_df(doc, df, range='A:B', index=True)
+def record_map_exploration(doc, df):
+    record_df(doc, 'Map Exploration', df)
 
-def record_player_income_breakdown(doc, player, df):
-    record_df(doc, f'Player {player}', df, range='I:J')
+def record_map_control(doc, df):
+    record_df(doc, 'Map Control', df, index=True)
 
-def record_global_market(doc, player, df):
-    record_df(doc, f'Player {player}', df, range='H:K')
+def record_player_logs(doc, df):
+    # TODO:
+    # - Grey-out older log entries:
+    #
+    #   https://docs.gspread.org/en/latest/api/models/worksheet.html#gspread.worksheet.Worksheet.format
+    #   https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets/cells#cellformat
+    #
+    #   >>> sheet.format(cell, {...})
 
-def record_player_intel(doc, player, df):
-    clear_sheet(doc, f'Player {player} Intel')
-    record_df(doc, f'Player {player} Intel', df)
+    df = df.sort_values('Turn', ascending=False)
 
-def record_player_investments(doc, df):
-    df = df.sort_values('Existing Investments')
-    record_player_df(doc, df, range='E:E')
+    record_player_df(doc, df, range='A:B')
 
+def record_player_balances(doc, values):
+    record_player_dict(doc, 'B1', values)
+
+def record_player_actions(doc, df):
+    for player in PLAYERS:
+        clear_sheet(doc, f'Player {player}', 'D2:D')
+
+    record_player_df(doc, df, range='D:E')
+
+def record_player_soldiers(doc, values):
+    record_player_dict(doc, 'B2', values)
+
+def record_player_engaged_soldiers(doc, values):
+    record_player_dict(doc, 'B3', values)
+
+def record_buildings(doc, df):
+    record_df(doc, 'Buildings', df, index=True)
+
+def record_building_prices(doc, df):
+    clear_sheet(doc, 'Building Prices')
+    record_df(doc, 'Building Prices', df)
+
+def record_building_resources(doc, df):
+    clear_sheet(doc, 'Building Resources')
+    record_df(doc, 'Building Resources', df)
+
+def record_building_effects(doc, df):
+    clear_sheet(doc, 'Building Effects')
+    record_df(doc, 'Building Effects', df)
+
+def record_battles(doc, df):
+    record_df(doc, 'Battles', df)
+
+@retry_politely
 def record_df(doc, sheet_name, df, *, range=None, cols=None, index=False):
     """
     Upload the given data frame to the given Google Docs spreadsheet.
@@ -175,6 +290,7 @@ def record_df(doc, sheet_name, df, *, range=None, cols=None, index=False):
     else:
         sheet.update(cells)
 
+@retry_politely
 def record_player_df(doc, df, *, range=None, cols=None, index=False):
     for player in PLAYERS:
 
@@ -208,23 +324,129 @@ def record_player_df(doc, df, *, range=None, cols=None, index=False):
                 index=False,
         )
 
+def record_player_dict(doc, cell, values):
+    for player, value in values.items():
+        record_cell(doc, f'Player {player}', cell, value)
+
+@retry_politely
 def record_cell(doc, sheet_name, cell_index, value):
     sheet = doc.worksheet(sheet_name)
     sheet.update(cell_index, value)
 
 
-def clear_player_new_investments(doc):
-    for player in PLAYERS:
-        clear_sheet(doc, f'Player {player}', 'D2:D')
-
+@retry_politely
 def clear_sheet(doc, sheet_name, range=None):
     sheet = doc.worksheet(sheet_name)
 
     if range:
         sheet.batch_clear([range])
     else:
-        # clear the entire sheet
         sheet.clear()
 
-def reset_is_finished(doc, player):
-    record_cell(doc, f'Player {player}', 'G5', False)
+
+def compose_map(*, tiles, edges, resources, exploration, control, auctions, battles):
+    # Node attributes:
+    # - x, y: location of the tile
+    # - resources: list of strings, can have duplicates
+    # - control: list of (name, turn) tuples
+    # - explore: the most recent turn each player explored this tile
+    #
+    map = nx.Graph()
+    for tile, (x, y) in tiles.iterrows():
+        map.add_node(
+                tile,
+                x=x,
+                y=y,
+                resources={},
+                control=[],
+                explore={},
+        )
+
+    for _, (a, b) in edges.iterrows():
+        map.add_edge(a, b)
+
+    for tile, (resource,) in resources.iterrows():
+        map.nodes[tile]['resources'].setdefault(resource, 0)
+        map.nodes[tile]['resources'][resource] += RESOURCE_FACTOR
+
+    for _, (tile, turn, player) in control.iterrows():
+        map.nodes[tile]['control'].append()
+
+    return map
+
+def who_controls(map, tile):
+    control = map.modes[tile]['control']
+    if not control:
+        raise ValueError(f"tile {tile} is not controlled by either player")
+    return control[-1].player
+
+def count_resources(map, tile):
+    resources = defaultdict(lambda: 0)
+
+    for resource in map.nodes[tile]['resources']:
+        resources[resource] += RESOURCE_FACTOR
+
+    return resources
+
+def player_controls_tile(map, tile, player):
+    control = map[tile]['control']
+    return control and control[-1].player == player
+
+def player_explored_tile(map, tile, player):
+    """
+    Return the most recent turn that the given player explored the given tile, 
+    or 0 if the player never explored the tile.
+    """
+    return map[tile]['explore'].get(player, [0])[-1]
+
+def opponent_controls_tile(map, tile, player):
+    control = map[tile]['control']
+    return control and control[-1].player != player
+
+def count_used_resources(map, tile, buildings, building_resources):
+    player = who_controls(map, tile)
+    df = pd.merge(
+            player_buildings.loc[tile].rename(
+                {'Quantity': 'Num Buildings'}, axis=1,
+            ),
+            building_resources.rename(
+                {'Quantity': 'Resources Per'}, axis=1,
+            ),
+            left_index=True,
+            right_index=True,
+    )
+    df['Resources Used'] = df['Num Buildings'] * df['Resources Per']
+    return df
+
+def count_unused_resources(map, tile, buildings, building_resources):
+    resources = map.nodes[tile]['resources']
+    resources_used_per_building = count_used_resources(
+            tile,
+            buildings,
+            building_resources,
+    )
+    resources_used = resources_used_per_building\
+            .groupby('Resource')['Resources Used'].sum()
+
+    for k in resources:
+        resources[k] -= resources_used[k]
+
+    return resources
+
+def count_engaged_soldiers(battles):
+    soldiers = {k: 0 for k in PLAYERS}
+
+    for _, battle in battles.iterrows():
+        soldiers[battle['Attacker']] += battle['Attacking Soldiers']
+        soldiers[battle['Defender']] += battle['Defending Soldiers']
+
+    return soldiers
+
+
+@dataclass(order=True)
+class Control:
+    turn: int
+    player: str
+
+
+
