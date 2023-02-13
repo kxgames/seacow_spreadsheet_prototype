@@ -57,9 +57,14 @@ def load_elasticities(doc):
     return load_df(doc, 'Elasticities', index=['Market', 'Related Market'])
 
 def load_map(doc, actions):
-    tiles = seacow.load_map_tiles(doc)
-    edges = seacow.load_map_edges(doc)
-    resources = seacow.load_map_resources(doc)
+    return compose_map(
+            tiles=seacow.load_map_tiles(doc),
+            edges=seacow.load_map_edges(doc),
+            resources=seacow.load_map_resources(doc),
+            exploration=seacow.load_map_exploration(doc),
+            control=seacow.load_map_control(doc),
+            battles=seacow.load_battles(doc),
+    )
 
 def load_map_tiles(doc):
     return load_df(doc, 'Map Tiles', index=['Tile'])
@@ -345,7 +350,7 @@ def clear_sheet(doc, sheet_name, range=None):
         sheet.clear()
 
 
-def compose_map(*, tiles, edges, resources, exploration, control, auctions, battles):
+def compose_map(*, tiles, edges, resources, exploration, control, battles):
     # Node attributes:
     # - x, y: location of the tile
     # - resources: list of strings, can have duplicates
