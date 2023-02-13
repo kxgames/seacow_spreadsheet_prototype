@@ -208,6 +208,7 @@ def record_map_exploration(doc, df):
     record_df(doc, 'Map Exploration', df)
 
 def record_map_control(doc, df):
+    clear_sheet(doc, 'Map Control')
     record_df(doc, 'Map Control', df, index=True)
 
 def record_player_logs(doc, df):
