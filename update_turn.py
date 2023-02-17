@@ -20,6 +20,7 @@ import pandas as pd
 import random
 
 from numpy import log, exp
+from itertools import chain, repeat
 
 class World:
 
@@ -49,7 +50,18 @@ class World:
 
         self.battles = seacow.load_battles(doc)
 
-        self.log = Log(self)
+        self.refresh_map()
+
+    def log(self, message, player=None):
+        players = [player] if player else seacow.PLAYERS
+        turn = self.turn
+
+        df = pd.DataFrame([
+                {'Turn': turn, 'Player': player, 'Log': message}
+                for player in players
+        ])
+
+        self.player_logs = pd.concat([self.player_logs, df])
 
     def refresh_turn(self):
         self.turn += 1
@@ -61,32 +73,17 @@ class World:
                 resources=self.map_resources,
                 exploration=self.map_exploration,
                 control=self.map_control,
-                auctions=self.auctions,
                 battles=self.battles,
         )
-
-class Log:
-
-    def __init__(self, world):
-        self.world = world
-
-    def write(self, message, player=None):
-        players = [player] if player else seacow.PLAYERS
-        turn = self.world.turn
-
-        df = pd.DataFrame([
-                {'Turn': turn, 'Player': player, 'Log': message}
-                for player in players
-        ])
-
-        self.world.player_logs = pd.concat([self.world.player_logs, df])
-
 
 class ActionError(Exception):
     pass
 
 class TooExpensive(ActionError):
-    pass
+
+    def __init__(self, balance, required):
+        self.balance = balance
+        self.required = required
 
 class SkipWithWarning(ActionError):
 
@@ -107,8 +104,8 @@ def update_actions(world):
     actions = {}
     pending_actions = []
 
-    for player, df in world.player_actions.groupby('Player'):
-        actions[player] = list(df['Actions'])
+    for player, group in world.player_actions.groupby('Player'):
+        actions[player] = list(group['Actions'])
 
     while actions:
         # I don't think it matters what order the players take their actions 
@@ -120,17 +117,21 @@ def update_actions(world):
         try:
             take_action(world, player, action)
 
-        except TooExpensive:
+        except TooExpensive as warn:
+            message = chain(
+                    [f"needed ${warn.required:.0f}, only had ${warn.balance:.0f}"],
+                    repeat(''),
+            )
             pending_actions += [
-                    {'Player': player, 'Action': action, 'Warning': ''}
+                    {'Player': player, 'Actions': action, 'Warning': next(message)}
                     for action in actions[player]
             ]
-            del actions[player]
+            del actions[player][:]
 
         except SkipWithWarning as warn:
             pending_actions.append({
                 'Player': player,
-                'Action': action,
+                'Actions': action,
                 'Warning': warn.message,
             })
             del actions[player][0]
@@ -141,7 +142,10 @@ def update_actions(world):
         if not actions[player]:
             del actions[player]
 
-    world.pending_actions = pd.DataFrame(pending_actions)
+    world.pending_actions = pd.DataFrame(
+            pending_actions,
+            columns=['Player', 'Actions', 'Warning'],
+    )
 
 def update_market_shares(world):
     """
@@ -172,8 +176,8 @@ def update_market_shares(world):
         market_shares.loc[i, 'Supply at $1'] += row['Supply at $1']
         market_shares.loc[i, 'Demand at $1'] += row['Demand at $1']
 
-    for (tile, building), (quantity,) in world.buildings.iterrows():
-        player = seacow.who_controls(tile)
+    for (tile, building), quantity in world.buildings.iterrows():
+        player = seacow.who_controls(world.map, tile)
 
         for market, row in world.building_effects.loc[building].iterrows():
             i = market, player
@@ -241,9 +245,10 @@ def update_market_prices(world):
             left_index=True,
             right_index=True,
     )
-    world.market_shares['Income'] = \
-            world.market_shares['Total Value'] * \
+    world.market_shares['Income'] = (
+            world.market_shares['Total Value'] *
             world.market_shares['Supply Share']
+    ).round()
 
 def update_incomes(world):
     """
@@ -254,7 +259,7 @@ def update_incomes(world):
     incomes = market_shares['Income'].groupby('Player').sum()
 
     for player, income in incomes.iteritems():
-        world.log.write(f"Income: ${income}", player=player)
+        world.log(f"Income: ${income:.0f}", player=player)
         world.player_balances[player] += income
 
 def update_battles(world):
@@ -281,16 +286,16 @@ def update_battles(world):
     def fight(num_attackers, num_defenders):
         num_attacks = 1 + np.ceil(np.log2(num_attackers))
         num_kills = np.random.binomial(num_attacks, seacow.KILL_PROBABILITY)
-        return min(num_kills, num_defenders)
+        return max(num_defenders - num_kills, 0)
 
     # Don't simulate battles on the turns they were created, because the 
     # defender won't have had a chance to commit soldiers yet.
     active_battles = world.battles.query('Begin < @world.turn and End == 0')
 
     for i, battle in active_battles.iterrows():
-        tile = battle['Tile'].item()
-        num_attackers = battle['Attacking Soldiers'].item()
-        num_defenders = battle['Defending Soldiers'].item()
+        tile = battle['Tile']
+        num_attackers = num_surviving_attackers = battle['Attacking Soldiers']
+        num_defenders = num_surviving_defenders = battle['Defending Soldiers']
 
         # It's possible that one side will have no soldiers, e.g. if that side 
         # retreated this turn.  In this case, don't bother simulating the fight 
@@ -300,34 +305,34 @@ def update_battles(world):
             num_surviving_attackers = fight(num_defenders, num_attackers)
             num_surviving_defenders = fight(num_attackers, num_defenders)
 
-            world.log.write(f"Battle on tile {tile}:")
-            world.log.write(f"{num_attackers - num_surviving_attackers} attackers killed, {num_surviving_attackers} remaining")
-            world.log.write(f"{num_defenders - num_surviving_defenders} defenders killed, {num_surviving_defenders} remaining")
+            world.log(f"Battle on tile {tile}:")
+            world.log(f"{num_attackers - num_surviving_attackers} attackers killed, {num_surviving_attackers} remaining")
+            world.log(f"{num_defenders - num_surviving_defenders} defenders killed, {num_surviving_defenders} remaining")
 
-            world.battles.loc[i, 'Defending Soldiers'] = num_surviving_attackers
-            world.battles.loc[i, 'Attacking Soldiers'] = num_surviving_defenders
+            world.battles.loc[i, 'Attacking Soldiers'] = num_surviving_attackers
+            world.battles.loc[i, 'Defending Soldiers'] = num_surviving_defenders
 
         if (num_surviving_attackers == 0) or (num_surviving_defenders == 0):
             world.battles.loc[i, 'End'] = world.turn
 
             # Return any surviving soldiers to their players:
-            attacker = battle['Attacker'].item()
-            defender = battle['Defender'].item()
+            attacker = battle['Attacker']
+            defender = battle['Defender']
 
             world.player_soldiers[attacker] += num_surviving_attackers
             world.player_soldiers[defender] += num_surviving_defenders
 
             # Update the map:
             if num_surviving_attackers:
-                world.log.write(f"Player {attacker} took control of tile {tile}!")
+                world.log(f"Player {attacker} took control of tile {tile}!")
 
-                world.map_control.loc[tile, world.turn] = attacker
+                world.map_control.loc[(tile, world.turn), 'Player'] = attacker
                 world.refresh_map()
                 
             else:
                 # If both players run out of soldiers, the defender wins by 
                 # default.
-                world.log.write(f"Player {defender} defended the attack on tile {tile}!")
+                world.log(f"Player {defender} defended the attack on tile {tile}!")
 
 
 def take_action(world, player, action):
@@ -343,39 +348,36 @@ def take_action(world, player, action):
       will be presented with a warning message, so they know what happened.
     """
     match action.split():
-        case ("explore", tile_str):
-            tile = parse_tile(tile_str)
+        case ("explore", *args):
+            tile = parse_arguments(world, [parse_tile], args)
             explore(world, player, tile)
 
-        case ("expand", tile_str):
-            tile = parse_tile(tile_str)
+        case ("expand", *args):
+            tile = parse_arguments(world, [parse_tile], args)
             expand(world, player, tile)
 
-        case ("build", tile_str, building_str):
-            tile = parse_tile(tile_str)
-            building = parse_building(building_str)
-            invest(world, player, tile, building)
+        case ("build", *args):
+            tile, building = parse_arguments(world, [parse_tile, parse_building], args)
+            build(world, player, tile, building)
 
-        case ("recruit", soldiers_str):
-            soldiers = parse_soldiers(soldiers_str)
+        case ("recruit", *args):
+            soldiers = parse_arguments(world, [parse_soldiers], args)
             recruit(world, player, soldiers)
 
-        case ("attack", tile_str, soldiers_str):
-            tile = parse_tile(tile_str)
-            soldiers = parse_soldiers(soldiers_str)
+        case ("attack", *args):
+            tile, soldiers = parse_arguments(world, [parse_tile, parse_soldiers], args)
             attack(world, player, tile, soldiers)
 
-        case ("defend", tile_str, soldiers_str):
-            tile = parse_tile(tile_str)
-            soldiers = parse_soldiers(soldiers_str)
+        case ("defend", *args):
+            tile, soldiers = parse_arguments(world, [parse_tile, parse_soldiers], args)
             defend(world, player, tile, soldiers)
 
-        case ("retreat", tile_str):
-            tile = parse_tile(tile_str)
+        case ("retreat", *args):
+            tile = parse_arguments(world, [parse_tile], args)
             retreat(world, player, tile)
 
         case (cmd, *args):
-            raise SkipWithWarning(f"unknown command: {cmd!r}")
+            raise SkipWithWarning(f"unknown action {cmd!r}")
 
 def explore(world, player, tile):
     require_explored_neighbor(world.map, tile, player)
@@ -383,7 +385,7 @@ def explore(world, player, tile):
 
     # Update the "Map Exploration" table in place:
     i = len(world.map_exploration)
-    world.map_exploration.iloc[i] = {
+    world.map_exploration.loc[i] = {
             'Tile': tile,
             'Player': player,
             'Turn': world.turn,
@@ -407,23 +409,23 @@ def expand(world, player, tile):
 def build(world, player, tile, building):
     price = world.building_prices.at[building, 'Price']
 
-    require_controlled_tile(map, tile, player)
+    require_controlled_tile(world.map, tile, player)
     require_resources(world, tile, building)
     require_payment(world, player, price)
 
     # Update the "Buildings" table in place:
 
     df = world.buildings
-    k = tile, building
+    k = (tile, building),
 
     if k not in df.index:
         df.loc[k] = 1
     else:
         df.loc[k] += 1
 
-def recruit(world, player, building):
-    require_payment(world, player, seacow.RECRUIT_PRICE)
-    world.player_soldiers[player] += 1
+def recruit(world, player, soldiers):
+    require_payment(world, player, seacow.RECRUIT_PRICE * soldiers)
+    world.player_soldiers[player] += soldiers
 
 def attack(world, player, tile, soldiers):
     require_opponent_tile(world.map, tile, player)
@@ -437,11 +439,11 @@ def attack(world, player, tile, soldiers):
         require_explored_tile(world.map, tile, player)
         require_payment(world, player, seacow.ATTACK_PRICE)
 
-        opponent = map[tile]['control'][-1].player
+        opponent = seacow.who_controls(world.map, tile)
         world.log(f"Tile {tile} is being attacked!", player=opponent)
 
         world.player_soldiers[player] -= soldiers
-        world.battles.loc[len(battles)] = {
+        world.battles.loc[len(world.battles)] = {
                 'Tile': tile,
                 'Begin': world.turn,
                 'End': 0,
@@ -468,25 +470,34 @@ def defend(world, player, tile, soldiers):
     world.battles.loc[battle, 'Defending Soldiers'] += soldiers
 
 def retreat(world, player, tile):
-    battle = require_battle(world.battles, tile)
-    require_payment(world, player, seacow.RETREAT_COST)
+    i = require_battle(world.battles, tile)
+    require_payment(world, player, seacow.RETREAT_PRICE)
 
-    world.log.write(f"Player {player} retreated from tile {tile}!")
-
+    battle = world.battles.iloc[i]
     soldier_cols = {
-            battle['Attacker'].item(): 'Attacking Soldiers',
-            battle['Defender'].item(): 'Defender Soldiers',
+            battle['Attacker']: 'Attacking Soldiers',
+            battle['Defender']: 'Defender Soldiers',
     }
     soldier_col = soldier_cols[player]
 
-    world.battles.loc[battle, soldier_col] = 0
-    world.player_soldiers[player] += battle[soldier_col].item() // 2
+    world.battles.loc[i, soldier_col] = 0
+    world.player_soldiers[player] += battle[soldier_col] // 2
 
+    world.log(f"Player {player} retreated from tile {tile}!", player=battle['Defender'])
+
+
+def parse_arguments(world, parsers, args):
+    if len(args) != len(parsers):
+        raise SkipWithWarning(f"expected {len(parsers)} arguments, got {len(args)}")
+
+    values = [f(world, x) for f, x in zip(parsers, args)]
+
+    return values[0] if len(values) == 1 else values
 
 def parse_tile(world, tile_str):
     try:
         tile = int(tile_str)
-    except TypeError:
+    except:
         raise SkipWithWarning(f"can't interpret {tile_str!r} as a tile")
 
     if tile not in world.map.nodes:
@@ -495,7 +506,7 @@ def parse_tile(world, tile_str):
     return tile
 
 def parse_building(world, building):
-    if building not in world.buildings.index:
+    if building not in world.building_prices.index:
         raise SkipWithWarning(f"no such building {building!r}")
 
     return building
@@ -503,13 +514,13 @@ def parse_building(world, building):
 def parse_soldiers(world, soldiers_str):
     try:
         return int(soldiers_str)
-    except TypeError:
+    except:
         raise SkipWithWarning(f"can't interpret {soldiers_str!r} as a number of soldiers")
 
 
 def require_payment(world, player, amount):
     if world.player_balances[player] < amount:
-        raise TooExpensive()
+        raise TooExpensive(world.player_balances[player], amount)
     else:
         world.player_balances[player] -= amount
 
@@ -526,44 +537,43 @@ def require_opponent_tile(map, tile, player):
         raise SkipWithWarning(f"opponent must control tile {tile}")
 
 def require_uncontrolled_tile(map, tile):
-    if c := map.tile['control']:
+    if c := map.nodes[tile]['control']:
         raise SkipWithWarning(f"tile {tile} is already controlled by player {c[-1].player}")
 
 def require_explored_neighbor(map, tile, player):
     for neighbor in map.neighbors(tile):
-        if seacow.player_explored_tile(map, player, neighbor):
+        if seacow.player_explored_tile(map, neighbor, player):
             return
     raise SkipWithWarning(f"must explore a tile adjacent to {tile}")
 
 def require_controlled_neighbor(map, tile, player):
     for neighbor in map.neighbors(tile):
-        if seacow.player_controls_tile(map, player, neighbor):
+        if seacow.player_controls_tile(map, neighbor, player):
             return
     raise SkipWithWarning(f"must control a tile adjacent to {tile}")
 
 def require_resources(world, tile, building):
     unused_resources = seacow.count_unused_resources(
-            map,
+            world.map,
             tile,
-            world.player_buildings,
+            world.buildings,
             world.building_resources,
     )
-
     exhausted_resources = [
             resource
-            for resource, quantity in world.building_resources[building]
-            if quantity > unused_resources[resource]
+            for resource, (quantity,) in world.building_resources.loc[building].iterrows()
+            if quantity > unused_resources.get(resource, 0)
     ]
     if exhausted_resources:
-        raise SkipWithWarning(f"not enough {','.join(exhausted_resources)} resources")
+        raise SkipWithWarning(f"not enough {','.join(exhausted_resources)} resources in tile {tile}")
 
 def require_soldiers(world, player, num_soldiers):
     n = world.player_soldiers[player]
     if n < num_soldiers:
-        raise SkipWithWarning("must have {num_soldiers} soldiers; only have {n}")
+        raise SkipWithWarning(f"must have {num_soldiers} soldiers; only have {n}")
 
 def require_battle(battles, tile):
-    battle = battles.query('tile == @tile and end == 0')
+    battle = battles.query('Tile == @tile and End == 0')
 
     if len(battle) == 0:
         raise SkipWithWarning(f"no battle happening in tile {tile}")
@@ -593,6 +603,11 @@ def record_world(doc, world):
 
     seacow.record_battles(doc, world.battles)
 
+    try:
+        doc.commit()
+    except AttributeError:
+        pass
+
 
 if __name__ == '__main__':
     import docopt
@@ -601,14 +616,15 @@ if __name__ == '__main__':
     doc = seacow.load_doc()
     world = World(doc)
 
-    if not args['--interactive']:
-        update_turn(world)
-        record_world(doc, world)
-
-    else:
+    if args['--interactive']:
         while True:
             update_turn(world)
             record_world(doc, world)
-            input("Press [Enter] to start the next turn...")
+            input(f"Turn {world.turn} complete!  Press [Enter] to start the next turn...")
+
+    else:
+        update_turn(world)
+        record_world(doc, world)
+        print(f"Turn {world.turn} complete!")
 
 
