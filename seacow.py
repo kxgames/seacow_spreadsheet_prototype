@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
 import gspread
+import offline_mode
 import pandas as pd
+import networkx as nx
 import backoff
 import os, sys
 import networkx as nx
 
 from dataclasses import dataclass
-from collections import defaultdict
 
 PLAYERS = ['1', '2']
 EXPLORE_PRICE = 50
@@ -22,14 +23,19 @@ RESOURCE_FACTOR = 5
 retry_politely = backoff.on_exception(
         backoff.expo,
         gspread.exceptions.APIError,
+        giveup=lambda err: err.response.json()['error']['code'] != 429,
         on_backoff=lambda details: print(
-            "Backing off {wait:.2f} secconds after {tries} tries".format_map(details),
+            "Backing off {wait:.2f} seconds after {tries} tries".format_map(details),
             file=sys.stderr,
         ),
 )
 
 @retry_politely
 def load_doc(version=None):
+    if xlsx_in := os.environ.get('SEACOW_OFFLINE_MODE'):
+        xlsx_out = os.environ.get('SEACOW_OFFLINE_MODE_OUTPUT_PATH')
+        return offline_mode.load_doc(xlsx_in, xlsx_out)
+        
     auth = gspread.oauth()
 
     # These keys come directly from the URLs of the spreadsheets.
@@ -77,13 +83,18 @@ def load_map_resources(doc):
     return load_df(doc, 'Map Resources', index=['Tile'])
 
 def load_map_exploration(doc):
-    return load_df(doc, 'Map Exploration')
+    return load_df(doc, 'Map Exploration', dtypes={'Player': 'string'})
 
 def load_map_control(doc):
-    return load_df(doc, 'Map Control', index=['Tile', 'Turn'])
+    return load_df(
+            doc,
+            'Map Control',
+            index=['Tile', 'Turn'],
+            dtypes={'Player': 'string'},
+    )
 
 def load_player_logs(doc):
-    return load_player_df(doc, range='A:B')
+    return load_player_df(doc, range='G:H')
 
 def load_player_balances(doc):
     return load_player_dict(doc, 'B1', required=True, cast=float)
@@ -107,20 +118,27 @@ def load_building_effects(doc):
     return load_df(doc, 'Building Effects', index=['Building', 'Market'])
 
 def load_battles(doc):
-    return load_df(doc, 'Battles')
+    return load_df(
+            doc,
+            'Battles',
+            dtypes={'Attacker': 'string', 'Defender': 'string'},
+    )
 
 @retry_politely
-def load_df(doc, sheet_name, *, range=None, index=None):
+def load_df(doc, sheet_name, *, range=None, index=None, dtypes=None):
     sheet = doc.worksheet(sheet_name)
     cells = sheet.get_values(range, value_render_option='UNFORMATTED_VALUE')
     df = pd.DataFrame(cells[1:], columns=cells[0])
+
+    if dtypes:
+        for col, dtype in dtypes.items():
+            df[col] = df[col].astype(dtype)
 
     if index:
         return df.set_index(index).sort_index()
     else:
         return df
 
-@retry_politely
 def load_player_df(doc, *, range=None, index=None):
     """
     Load a data frame containing information on each player.
@@ -228,7 +246,7 @@ def record_player_logs(doc, df):
 
     df = df.sort_values('Turn', ascending=False)
 
-    record_player_df(doc, df, range='A:B')
+    record_player_df(doc, df, range='G:H')
 
 def record_player_balances(doc, values):
     record_player_dict(doc, 'B1', values)
@@ -236,6 +254,8 @@ def record_player_balances(doc, values):
 def record_player_actions(doc, df):
     for player in PLAYERS:
         clear_sheet(doc, f'Player {player}', 'D2:D')
+
+    print(df)
 
     record_player_df(doc, df, range='D:E')
 
@@ -297,35 +317,12 @@ def record_df(doc, sheet_name, df, *, range=None, cols=None, index=False):
     else:
         sheet.update(cells)
 
-@retry_politely
 def record_player_df(doc, df, *, range=None, cols=None, index=False):
-    for player in PLAYERS:
-
-        # The double-brackets force `.loc` to generate a data frame instead of 
-        # converting to a series when the data have one one column.  This is 
-        # important because `record_df()` res an actual data frame.  It's also 
-        # not trivial to recreate a data frame from a series.  I tried to do 
-        # this, but kept getting a bug where pandas would mix up the rows and 
-        # columns of the data frame if the series only had one entry.
-
-        try:
-            dfi = df.loc[[player]]
-        except KeyError:
-            continue
-
-        # If the user asks for the index to be recorded, we don't want to 
-        # include the "Player" level.  Removing index levels is complicated, 
-        # though (you have to do it differently depending on how many index 
-        # levels there are), so here we just convert any index levels into 
-        # columns, then remove the player column.
-
-        if index:
-            dfi = dfi.reset_index().drop('Player', axis=1)
-
+    for player, group in df.groupby('Player'):
         record_df(
                 doc,
                 f'Player {player}',
-                dfi,
+                group.drop(columns='Player'),
                 range=range,
                 cols=cols,
                 index=False,
@@ -336,9 +333,9 @@ def record_player_dict(doc, cell, values):
         record_cell(doc, f'Player {player}', cell, value)
 
 @retry_politely
-def record_cell(doc, sheet_name, cell_index, value):
+def record_cell(doc, sheet_name, cell, value):
     sheet = doc.worksheet(sheet_name)
-    sheet.update(cell_index, value)
+    sheet.update(cell, value)
 
 
 @retry_politely
@@ -365,25 +362,24 @@ def compose_map(*, tiles, edges, resources, exploration, control, battles):
                 x=x,
                 y=y,
                 resources={},
-                control=[],
+                control=[], # [control_obj, ...]
                 explore=defaultdict(list), #{player : [turns explored]}
         )
 
     for _, (a, b) in edges.iterrows():
         map.add_edge(a, b)
 
-    for tile, (resource,) in resources.iterrows():
+    for tile, row in resources.iterrows():
+        resource = row['Resource']
         map.nodes[tile]['resources'].setdefault(resource, 0)
         map.nodes[tile]['resources'][resource] += RESOURCE_FACTOR
 
-    for row in exploration.iterrows():
-        print(row)
-        assert False
-    #for (tile, turn), (player_id,) in exploration.iterrows():
-        map.nodes[tile]['explore'][player_id].append(turn)
+    for (tile, turn), row in control.sort_index().iterrows():
+        ctrl = Control(turn, row['Player'])
+        map.nodes[tile]['control'].append(ctrl)
 
-    for (tile, turn), (player_id,) in control.iterrows():
-        map.nodes[tile]['control'].append(Control(turn, player_id))
+    for _, (tile, turn, player) in exploration.iterrows():
+        map.nodes[tile]['explore'][player].append(turn)
 
     return map
 
@@ -415,26 +411,32 @@ def count_resources(map, tile):
         resources[resource] += RESOURCE_FACTOR
 
     return resources
-
 def player_controls_tile(map, tile, player):
-    control = map[tile]['control']
-    return control and control[-1].player == player
+    try:
+        return who_controls(map, tile) == player
+    except ValueError:
+        return False
 
 def player_explored_tile(map, tile, player):
     """
     Return the most recent turn that the given player explored the given tile, 
     or 0 if the player never explored the tile.
     """
-    return map[tile]['explore'].get(player, [0])[-1]
+    return player_controls_tile(map, tile, player) or \
+            map.nodes[tile]['explore'].get(player, [0])[-1]
 
 def opponent_controls_tile(map, tile, player):
-    control = map[tile]['control']
-    return control and control[-1].player != player
+    try:
+        return who_controls(map, tile) != player
+    except ValueError:
+        return False
 
-def count_used_resources(map, tile, buildings, building_resources):
-    player = who_controls(map, tile)
+def count_used_resources(tile, buildings, building_resources):
+    if buildings.empty:
+        return pd.DataFrame([], columns=['Resources Used'])
+
     df = pd.merge(
-            player_buildings.loc[tile].rename(
+            buildings.loc[tile].rename(
                 {'Quantity': 'Num Buildings'}, axis=1,
             ),
             building_resources.rename(
@@ -453,11 +455,12 @@ def count_unused_resources(map, tile, buildings, building_resources):
             buildings,
             building_resources,
     )
-    resources_used = resources_used_per_building\
-            .groupby('Resource')['Resources Used'].sum()
+    if not resources_used_per_building.empty:
+        resources_used = resources_used_per_building\
+                .groupby('Resource')['Resources Used'].sum()
 
-    for k in resources:
-        resources[k] -= resources_used[k]
+        for k in resources:
+            resources[k] -= resources_used[k]
 
     return resources
 
