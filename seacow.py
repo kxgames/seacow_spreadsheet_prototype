@@ -365,6 +365,7 @@ def compose_map(*, tiles, edges, resources, exploration, control, battles):
                 resources={}, # {resource : amount}
                 control=[], # [Control(turn, player), ...]
                 explore={}, #{player : [turns explored]}
+                battles=[], #[Battle(...), ...]
         )
 
     for _, (a, b) in edges.iterrows():
@@ -381,6 +382,11 @@ def compose_map(*, tiles, edges, resources, exploration, control, battles):
 
     for _, (tile, turn, player) in exploration.iterrows():
         map.nodes[tile]['explore'].setdefault(player, []).append(turn)
+
+    for _, row in battles.sort_index().iterrows():
+        tile = row[0]
+        battle = Battle(*row[1:])
+        map.nodes[tile]['battles'].append(battle)
 
     return map
 
@@ -413,6 +419,10 @@ def when_explored(map, tile, player):
 def is_explored_by(map, tile, player):
     exploration = map.nodes[tile]['explore']
     return player in exploration or is_controlled_by(map, tile, player)
+
+def is_active_battle(map, tile):
+    battles = map.nodes[tile]['battles']
+    return battles and not battles[-1].end
 
 def count_resources(map, tile):
     resources = defaultdict(lambda: 0)
@@ -488,4 +498,13 @@ def count_engaged_soldiers(battles):
 class Control:
     turn: int
     player: str
+
+@dataclass(order=True)
+class Battle:
+    begin: int
+    end: int
+    attacker: str
+    defender: str
+    attacking_soldiers: int
+    defending_soldiers: int
 

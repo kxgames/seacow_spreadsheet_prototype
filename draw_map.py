@@ -69,12 +69,21 @@ def plot_player(map, player_id):
         node = map.nodes[tile]
         owner_id = seacow.who_controls(map, tile, return_none=True) or '0'
 
+        node['pos'] = f'{node["x"]},{node["y"]}!'
+        node['fontsize'] = '150'
+        node['style'] = 'filled'
+
+        if seacow.is_active_battle(map, tile):
+            node['shape'] = 'doubleoctagon'
+            node['penwidth'] = 10
+
         tile_exploration = node['explore']
         if player_id == '0' or player_id == owner_id:
             # Script directed to show all (player_id == 0) or owned by player
             # Tile fully visible.
             node['label'] = make_label(tile, node, is_explored=True)
             node['fillcolor'] = player_info[owner_id]['fillcolor']
+
         elif player_id in tile_exploration:
             # Explored tile
             # Show tile id and resources
@@ -103,10 +112,6 @@ def plot_player(map, player_id):
                 # Unknown tile
                 # Hide/delete
                  tiles_to_remove.append(tile)
-
-        node['pos'] = f'{node["x"]},{node["y"]}!'
-        node['fontsize'] = '150'
-        node['style'] = 'filled'
 
     map.remove_nodes_from(tiles_to_remove)
 
