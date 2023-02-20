@@ -7,6 +7,7 @@ import networkx as nx
 import backoff
 import os, sys
 import networkx as nx
+from collections import defaultdict
 
 from dataclasses import dataclass
 
@@ -361,9 +362,9 @@ def compose_map(*, tiles, edges, resources, exploration, control, battles):
                 tile,
                 x=x,
                 y=y,
-                resources={},
-                control=[], # [control_obj, ...]
-                explore=defaultdict(list), #{player : [turns explored]}
+                resources={}, # {resource : amount}
+                control=[], # [Control(turn, player), ...]
+                explore={}, #{player : [turns explored]}
         )
 
     for _, (a, b) in edges.iterrows():
@@ -379,7 +380,7 @@ def compose_map(*, tiles, edges, resources, exploration, control, battles):
         map.nodes[tile]['control'].append(ctrl)
 
     for _, (tile, turn, player) in exploration.iterrows():
-        map.nodes[tile]['explore'][player].append(turn)
+        map.nodes[tile]['explore'].setdefault(player, []).append(turn)
 
     return map
 
@@ -398,11 +399,20 @@ def when_controlled(map, tile, player):
         raise ValueError(f"tile {tile} is not controlled by player {player}")
     return control[-1].turn
 
+def is_controlled_by(map, tile, player):
+    control = map.nodes[tile]['control']
+    owner = who_controls(map, tile, True)
+    return owner and player == owner
+
 def when_explored(map, tile, player):
     exploration = map.nodes[tile]['explore']
     if player not in exploration:
         raise ValueError(f"tile {tile} not explored yet by player")
     return exploration[player][-1]
+
+def is_explored_by(map, tile, player):
+    exploration = map.nodes[tile]['explore']
+    return player in exploration or is_controlled_by(map, tile, player)
 
 def count_resources(map, tile):
     resources = defaultdict(lambda: 0)

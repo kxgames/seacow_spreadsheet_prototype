@@ -9,3 +9,6 @@ gspread
 docopt
 scipy
 backoff
+openpyxl
+plum-dispatch
+more-itertools
