@@ -4,6 +4,7 @@ import gspread
 import pandas as pd
 import backoff
 import os, sys
+import networkx as nx
 
 from dataclasses import dataclass
 from collections import defaultdict
@@ -56,14 +57,14 @@ def load_markets(doc):
 def load_elasticities(doc):
     return load_df(doc, 'Elasticities', index=['Market', 'Related Market'])
 
-def load_map(doc, actions):
+def load_map(doc):
     return compose_map(
-            tiles=seacow.load_map_tiles(doc),
-            edges=seacow.load_map_edges(doc),
-            resources=seacow.load_map_resources(doc),
-            exploration=seacow.load_map_exploration(doc),
-            control=seacow.load_map_control(doc),
-            battles=seacow.load_battles(doc),
+            tiles=load_map_tiles(doc),
+            edges=load_map_edges(doc),
+            resources=load_map_resources(doc),
+            exploration=load_map_exploration(doc),
+            control=load_map_control(doc),
+            battles=load_battles(doc),
     )
 
 def load_map_tiles(doc):
@@ -365,7 +366,7 @@ def compose_map(*, tiles, edges, resources, exploration, control, battles):
                 y=y,
                 resources={},
                 control=[],
-                explore={},
+                explore=defaultdict(list), #{player : [turns explored]}
         )
 
     for _, (a, b) in edges.iterrows():
@@ -375,16 +376,37 @@ def compose_map(*, tiles, edges, resources, exploration, control, battles):
         map.nodes[tile]['resources'].setdefault(resource, 0)
         map.nodes[tile]['resources'][resource] += RESOURCE_FACTOR
 
-    for _, (tile, turn, player) in control.iterrows():
-        map.nodes[tile]['control'].append()
+    for row in exploration.iterrows():
+        print(row)
+        assert False
+    #for (tile, turn), (player_id,) in exploration.iterrows():
+        map.nodes[tile]['explore'][player_id].append(turn)
+
+    for (tile, turn), (player_id,) in control.iterrows():
+        map.nodes[tile]['control'].append(Control(turn, player_id))
 
     return map
 
-def who_controls(map, tile):
-    control = map.modes[tile]['control']
+def who_controls(map, tile, return_none=False):
+    control = map.nodes[tile]['control']
     if not control:
-        raise ValueError(f"tile {tile} is not controlled by either player")
+        if return_none:
+            return None
+        else:
+            raise ValueError(f"tile {tile} is not controlled by either player")
     return control[-1].player
+
+def when_controlled(map, tile, player):
+    control = map.nodes[tile]['control']
+    if (not control) or control[-1].player != player:
+        raise ValueError(f"tile {tile} is not controlled by player {player}")
+    return control[-1].turn
+
+def when_explored(map, tile, player):
+    exploration = map.nodes[tile]['explore']
+    if player not in exploration:
+        raise ValueError(f"tile {tile} not explored yet by player")
+    return exploration[player][-1]
 
 def count_resources(map, tile):
     resources = defaultdict(lambda: 0)
@@ -453,6 +475,4 @@ def count_engaged_soldiers(battles):
 class Control:
     turn: int
     player: str
-
-
 
