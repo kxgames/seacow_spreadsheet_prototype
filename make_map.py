@@ -552,14 +552,14 @@ resource_types = sheet_markets.index.values
 
 ## Generate a set of random points
 if distribution_method == 'uniform':
-    points = np_rng.uniform((0,0), (map_width, map_height), (n_cells, 2))
+    np_points = np_rng.uniform((0,0), (map_width, map_height), (n_cells, 2))
 
 elif distribution_method == 'grid-rectangular':
-    points = make_rectangular_grid_points(
+    np_points = make_rectangular_grid_points(
             n_cells, map_width, map_height, offset_radius_ratio)
 
 elif distribution_method == 'grid-hex':
-    points = make_hex_grid_points(
+    np_points = make_hex_grid_points(
             n_cells, map_width, map_height, offset_radius_ratio)
 
 elif distribution_method == 'min-distance':
@@ -570,12 +570,14 @@ elif distribution_method == 'min-distance':
 
 else:
     raise ValueError(f"Distribution type '{distribution_method}' is not recognized")
-points_df = pd.DataFrame(points, columns=['X', 'Y'])
-points_df.index.name = 'Tile'
+points_df = pd.DataFrame(np_points, columns=['X', 'Y'])
 n_cells = points_df.shape[0]
+points_df['Tile'] = np_rng.permutation(n_cells)
+points_df.set_index('Tile', inplace=True, verify_integrity=True)
+points_df.sort_index(inplace=True)
 
 ## Generate the voronoi diagram
-voronoi_map = scipy.spatial.Voronoi(points)
+voronoi_map = scipy.spatial.Voronoi(points_df.loc[:,('X', 'Y')].values)
 
 ## Distribute resources
 resources_df = generate_resources(points_df, resource_types, map_resource_density)
