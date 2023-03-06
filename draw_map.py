@@ -4,12 +4,9 @@
 Generate an image of the map.
 
 Usage:
-    draw_map.py [-F] [-A] [-S] [--show <viewer>]
+    draw_map.py [-A] [-S] [--show <viewer>]
 
 Options:
-    -F --full-map
-        Draw the entire map.
-
     -A --all-players
         Draw separate maps for all players.
 
