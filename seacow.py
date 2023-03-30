@@ -381,7 +381,13 @@ def compose_map(*, tiles, edges, resources, exploration, control, battles):
         map.nodes[tile]['control'].append(ctrl)
 
     for _, (tile, turn, player) in exploration.iterrows():
-        map.nodes[tile]['explore'].setdefault(player, []).append(turn)
+        try:
+            map.nodes[tile]['explore'].setdefault(player, []).append(turn)
+        except KeyError as e:
+            print(exploration)
+            print(tile, turn, player)
+            print("For some reason the exploration sheet did not clear?")
+            raise e
 
     for _, row in battles.sort_index().iterrows():
         tile = row[0]

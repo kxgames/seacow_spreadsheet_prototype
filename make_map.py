@@ -370,12 +370,66 @@ def make_hex_grid_points(target_n, map_width, map_height, max_random_offset=0.5)
 
     return grid_points
 
+def get_valid_voronoi_edges(raw_voronoi, map_width, map_height):
+    """
+    Get an nx2 numpy array representing the edges connecting points on the map 
+    while ignoring connections that are entirely outside the map boundary.  
+    Values are point ids (index integers); rows represent one connection.
+    """
+
+    # Get the vertices and append [nan, nan] so a -1 index refers to out of 
+    # bounds
+    vertices = np.vstack((raw_voronoi.vertices, [np.nan, np.nan]))
+    ridge_vertices = np.array(raw_voronoi.ridge_vertices)
+    #enumerated_vertices = np.hstack((np.arange(vertices.shape[0])[:, np.newaxis], vertices))
+    #print(enumerated_vertices)
+
+    # Get the coordinates of the ridge vertices
+    pairs = np.take(vertices, ridge_vertices, axis=0)
+    isnan = np.isnan(pairs)
+
+    # Define vectors for the lower left and upper right corners
+    lower_corner = np.array([0, 0])
+    upper_corner = np.array([map_width, map_height])
+
+    # Identify any coordinate value that lies out of bounds or nan
+    under = np.less(pairs, lower_corner[np.newaxis, :])
+    over = np.greater(pairs, upper_corner[np.newaxis, :])
+
+    # Identify pairs of vertices where they are both out of bounds in the same 
+    # direction or out of bounds paired with nans
+    under_nan = np.all(under | isnan, axis=1)
+    over_nan = np.all(over | isnan, axis=1)
+    same_off_direction = under_nan | over_nan
+
+    invalid_ridges = np.any(same_off_direction, axis=1)
+    valid_ridges = np.logical_not(invalid_ridges)
+
+    #print(invalid_ridges.shape)
+    #print(80*'#')
+    #print("Valid edges:")
+    #for e in pairs[valid_ridges, :, :]:
+    #    print(e[0,:], e[1,:])
+    #print(80*'#')
+    #print("Invalid edges:")
+    #for e in pairs[invalid_ridges, :, :]:
+    #    print(e[0,:], e[1,:])
+    #print(80*'#')
+    #assert False
+
+    # Trim the edge list
+    trimmed_ridge_points = raw_voronoi.ridge_points[valid_ridges, :]
+    n_deleted = raw_voronoi.ridge_points.shape[0] - trimmed_ridge_points.shape[0]
+    print(f"Removing {n_deleted} edges that are off the map")
+
+    return trimmed_ridge_points
+
 def print_data(data_dict):
     for name, data in data_dict.items():
         print(name)
         print(data)
 
-def plot_voronoi( voronoi_map, points_df,
+def plot_voronoi(voronoi_map, points_df,
         map_width, map_height,
         fig_max_inches=10, show_labels=True
         ):
@@ -579,6 +633,11 @@ points_df.sort_index(inplace=True)
 ## Generate the voronoi diagram
 voronoi_map = scipy.spatial.Voronoi(points_df.loc[:,('X', 'Y')].values)
 
+# Get edges on map
+#edges_df = pd.DataFrame(voronoi_map.ridge_points, columns=['Tile 1', 'Tile 2'])
+edges_on_map = get_valid_voronoi_edges(voronoi_map, map_width, map_height)
+edges_df = pd.DataFrame(edges_on_map , columns=['Tile 1', 'Tile 2'])
+
 ## Distribute resources
 resources_df = generate_resources(points_df, resource_types, map_resource_density)
 resource_groups = resources_df.groupby(by='Tile')
@@ -602,7 +661,6 @@ points_df, resources_df = fix_starting_resources(
         )
 
 ## Upload information to Google Docs
-edges_df = pd.DataFrame(voronoi_map.ridge_points, columns=['Tile 1', 'Tile 2'])
 if not args['--no-upload']:
     print("Uploading to Google Drive")
     # Format dataframes as needed
@@ -626,6 +684,7 @@ else:
         "Edges dataframe:" : edges_df,
         "Player init info:" : points_df[points_df['Owner'] > 0],
         })
+
     plot_voronoi(voronoi_map, points_df, map_width, map_height,
             #show_labels=False
             )

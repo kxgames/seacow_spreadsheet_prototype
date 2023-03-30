@@ -82,12 +82,14 @@ class Worksheet:
                 if i < len(values):
                     for j, cell in enumerate(row):
                         cell.value = values[i][j]
+        self.doc.commit()
 
     @dispatch
     def update(self, values):
         for i, row in enumerate(values, 1):
             for j, value in enumerate(row, 1):
                 self.sheet.cell(i, j).value = value
+        self.doc.commit()
 
     def batch_clear(self, range):
         for row in self.get_range(range):
