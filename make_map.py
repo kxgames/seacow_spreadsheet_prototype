@@ -539,7 +539,7 @@ def determine_ownership(points_df, map_width, map_height, target_n_resources, n_
     ownership[is_habitable] = 0
     tile_options = ownership.index.values[is_habitable]
 
-    starting_locations = np_rng.choice(tile_options, n_players)
+    starting_locations = np_rng.choice(tile_options, n_players, replace=False)
     for owner_id, tile_id in zip(np.arange(1, n_players+1), starting_locations):
         ownership[tile_id] = owner_id
     return ownership
@@ -655,6 +655,7 @@ points_df['Owner'] = determine_ownership(
         #shape='rectangular',
         shape='ellipse',
         )
+
 # Fix number of resources in starting tiles
 points_df, resources_df = fix_starting_resources(
         points_df, resources_df, resource_types, starting_n_resources
