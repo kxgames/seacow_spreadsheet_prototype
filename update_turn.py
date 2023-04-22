@@ -43,6 +43,9 @@ class World:
         self.player_soldiers = seacow.load_player_soldiers(doc)
         self.pending_actions = None  # filled in by `update_actions()`
 
+        self.technologies = seacow.load_technologies(doc)
+        self.technology_prices = seacow.load_technology_prices(doc)
+
         self.buildings = seacow.load_buildings(doc)
         self.building_prices = seacow.load_building_prices(doc)
         self.building_resources = seacow.load_building_resources(doc)
@@ -258,7 +261,7 @@ def update_incomes(world):
     market_shares = world.market_shares.drop('World', level='Player')
     incomes = market_shares['Income'].groupby('Player').sum()
 
-    for player, income in incomes.iteritems():
+    for player, income in incomes.items():
         world.log(f"Income: ${income:.0f}", player=player)
         world.player_balances[player] += income
 
@@ -356,6 +359,10 @@ def take_action(world, player, action):
             tile = parse_arguments(world, [parse_tile], args)
             expand(world, player, tile)
 
+        case ("research", *args):
+            tech = parse_arguments(world, [parse_technology], args)
+            research(world, player, tech)
+
         case ("build", *args):
             tile, building = parse_arguments(world, [parse_tile, parse_building], args)
             build(world, player, tile, building)
@@ -406,9 +413,24 @@ def expand(world, player, tile):
     # Other actions may depend on the map being up-to-date:
     world.refresh_map()
 
+def research(world, player, tech):
+    price = world.technology_prices.at[tech, 'Price']
+
+    require_unresearched(world, player, tech)
+    require_payment(world, player, price)
+
+    # Update the "Technologies" table in place:
+
+    df = world.technologies
+    players_list = df.loc[tech,'Players'].split(',') if tech in df.index else []
+    players_list.append(f"{player}")
+    df.loc[tech,'Players'] = ','.join(players_list)
+
 def build(world, player, tile, building):
     price = world.building_prices.at[building, 'Price']
+    required_tech = world.building_prices.at[building, 'Prereq Tech']
 
+    require_research(world, player, required_tech)
     require_controlled_tile(world.map, tile, player)
     require_resources(world, tile, building)
     require_payment(world, player, price)
@@ -418,10 +440,10 @@ def build(world, player, tile, building):
     df = world.buildings
     k = (tile, building),
 
-    if k not in df.index:
-        df.loc[k] = 1
-    else:
+    if df.index.isin(k).any():
         df.loc[k] += 1
+    else:
+        df.loc[k] = 1
 
 def recruit(world, player, soldiers):
     require_payment(world, player, seacow.RECRUIT_PRICE * soldiers)
@@ -517,6 +539,28 @@ def parse_soldiers(world, soldiers_str):
     except:
         raise SkipWithWarning(f"can't interpret {soldiers_str!r} as a number of soldiers")
 
+def parse_technology(world, tech):
+    if tech not in world.technology_prices.index:
+        raise SkipWithWarning(f"no such technology {tech}")
+
+    return tech
+
+
+def require_unresearched(world, player, tech):
+    has_researched  = (
+            (tech in world.technologies.index)
+            and (player in world.technologies.at[tech, 'Players'].split(','))
+            )
+    if tech and has_researched:
+        raise SkipWithWarning(f"'{tech}' already researched")
+
+def require_research(world, player, tech):
+    has_researched  = (
+            (tech in world.technologies.index)
+            and (player in world.technologies.at[tech, 'Players'].split(','))
+            )
+    if tech and not has_researched:
+        raise SkipWithWarning(f"must research '{tech}'")
 
 def require_payment(world, player, amount):
     if world.player_balances[player] < amount:
@@ -591,6 +635,8 @@ def record_world(doc, world):
 
     seacow.record_map_exploration(doc, world.map_exploration)
     seacow.record_map_control(doc, world.map_control)
+
+    seacow.record_technologies(doc, world.technologies)
 
     seacow.record_buildings(doc, world.buildings)
 

@@ -106,6 +106,13 @@ def load_player_actions(doc):
 def load_player_soldiers(doc):
     return load_player_dict(doc, 'B2', default=0, cast=int)
 
+def load_technologies(doc):
+    return load_df(doc, 'Technologies', index=['Technology'], dtypes={'Players' : 'string'})
+
+def load_technology_prices(doc):
+    return load_df(doc, 'Technology Prices', index=['Technology'])
+
+
 def load_buildings(doc):
     return load_df(doc, 'Buildings', index=['Tile', 'Building'])
 
@@ -256,8 +263,6 @@ def record_player_actions(doc, df):
     for player in PLAYERS:
         clear_sheet(doc, f'Player {player}', 'D2:D')
 
-    print(df)
-
     record_player_df(doc, df, range='D:E')
 
 def record_player_soldiers(doc, values):
@@ -265,6 +270,9 @@ def record_player_soldiers(doc, values):
 
 def record_player_engaged_soldiers(doc, values):
     record_player_dict(doc, 'B3', values)
+
+def record_technologies(doc, df):
+    record_df(doc, 'Technologies', df, index=True)
 
 def record_buildings(doc, df):
     record_df(doc, 'Buildings', df, index=True)
@@ -458,7 +466,7 @@ def opponent_controls_tile(map, tile, player):
         return False
 
 def count_used_resources(tile, buildings, building_resources):
-    if buildings.empty:
+    if buildings.empty or tile not in buildings.index.get_level_values('Tile'):
         return pd.DataFrame([], columns=['Resources Used'])
 
     df = pd.merge(
@@ -475,7 +483,7 @@ def count_used_resources(tile, buildings, building_resources):
     return df
 
 def count_unused_resources(map, tile, buildings, building_resources):
-    resources = map.nodes[tile]['resources']
+    resources = map.nodes[tile]['resources'].copy()
     resources_used_per_building = count_used_resources(
             tile,
             buildings,
@@ -484,9 +492,9 @@ def count_unused_resources(map, tile, buildings, building_resources):
     if not resources_used_per_building.empty:
         resources_used = resources_used_per_building\
                 .groupby('Resource')['Resources Used'].sum()
-
         for k in resources:
-            resources[k] -= resources_used[k]
+            if k in resources_used.index:
+                resources[k] -= resources_used[k]
 
     return resources
 
