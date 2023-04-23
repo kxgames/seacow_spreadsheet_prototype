@@ -179,13 +179,13 @@ def update_market_shares(world):
         market_shares.loc[i, 'Supply at $1'] += row['Supply at $1']
         market_shares.loc[i, 'Demand at $1'] += row['Demand at $1']
 
-    for (tile, building), quantity in world.buildings.iterrows():
+    for (tile, building), (quantity,) in world.buildings.iterrows():
         player = seacow.who_controls(world.map, tile)
 
         for market, row in world.building_effects.loc[building].iterrows():
             i = market, player
-            market_shares.loc[i, 'Supply at $1'] += row['Marginal Supply at $1']
-            market_shares.loc[i, 'Demand at $1'] += row['Marginal Demand at $1']
+            market_shares.loc[i, 'Supply at $1'] += quantity * row['Marginal Supply at $1']
+            market_shares.loc[i, 'Demand at $1'] += quantity * row['Marginal Demand at $1']
 
     # It seems like I should be able to do this calculation with `groupby()`, 
     # but I can't figure out how.
@@ -438,12 +438,12 @@ def build(world, player, tile, building):
     # Update the "Buildings" table in place:
 
     df = world.buildings
-    k = (tile, building),
+    k = tile, building
 
-    if df.index.isin(k).any():
+    try:
         df.loc[k] += 1
-    else:
-        df.loc[k] = 1
+    except KeyError:
+        df.loc[k, 'Quantity'] = 1
 
 def recruit(world, player, soldiers):
     require_payment(world, player, seacow.RECRUIT_PRICE * soldiers)

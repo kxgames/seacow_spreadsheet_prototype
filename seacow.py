@@ -12,7 +12,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 PLAYERS = ['1', '2']
-EXPLORE_PRICE = 50
+EXPLORE_PRICE = 10
 EXPAND_PRICE = 50
 RECRUIT_PRICE = 50
 ATTACK_PRICE = 100
@@ -201,7 +201,7 @@ def load_cell(doc, sheet_name, cell, *, default=None, required=False, cast=None)
 
 
 def record_turn(doc, turn):
-    record_cell(doc, 'Game Info', 'B2', turn)
+    record_cell(doc, 'Game Info', 'B1', turn)
 
 def record_market_history(doc, df):
     """
@@ -501,7 +501,7 @@ def count_unused_resources(map, tile, buildings, building_resources):
 def count_engaged_soldiers(battles):
     soldiers = {k: 0 for k in PLAYERS}
 
-    for _, battle in battles.iterrows():
+    for _, battle in battles.query('End == 0').iterrows():
         soldiers[battle['Attacker']] += battle['Attacking Soldiers']
         soldiers[battle['Defender']] += battle['Defending Soldiers']
 
