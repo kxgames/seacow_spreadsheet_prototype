@@ -487,6 +487,23 @@ def generate_resources(points_df, resource_types, map_resource_density):
             )
     resources_df.sort_values(['Tile', 'Resource'], inplace=True, ignore_index=True)
     return resources_df
+
+def generate_resources_from_dict(points_df, resources_count_dict):
+    # Resources_count_dict = {resource_type : number_on_map}
+    n_cells = points_df.shape[0]
+    resource_frames = []
+    for resource_name, count in resources_count_dict.items():
+        # Randomly assign 'count' tiles to the resource
+        resource_tiles = np_rng.choice(points_df.index.values, count, replace=True)
+        # Create a dataframe with the columns 'Tile' and 'Resource' for just 
+        # this resource
+        resource_frame = pd.DataFrame(resource_tiles, columns=['Tile'])
+        resource_frame['Resource'] = resource_name
+        resource_frames.append(resource_frame)
+    resources_df = pd.concat(resource_frames)
+    resources_df.sort_values(['Tile', 'Resource'], inplace=True, ignore_index=True)
+    return resources_df
+
 def _in_doughnut_zone(points_df, map_width, map_height, n_players=2, shape='rectangular'):
     half_width = map_width / 2
     half_height = map_height / 2
@@ -643,7 +660,14 @@ edges_on_map = get_valid_voronoi_edges(voronoi_map, map_width, map_height)
 edges_df = pd.DataFrame(edges_on_map , columns=['Tile 1', 'Tile 2'])
 
 ## Distribute resources
-resources_df = generate_resources(points_df, resource_types, map_resource_density)
+#resources_df = generate_resources(points_df, resource_types, map_resource_density)
+resources_count_dict = {
+        'A' : 1,
+        'B' : 1,
+        'C' : 1,
+        'D' : 1,
+        }
+resources_df = generate_resources_from_dict(points_df, resources_count_dict)
 resource_groups = resources_df.groupby(by='Tile')
 points_df['Resource Count'] = resource_groups['Resource'].count()
 points_df['Resources'] = resource_groups['Resource'].apply(list)
