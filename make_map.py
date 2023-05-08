@@ -3,7 +3,9 @@
 
 """\
 Usage:
-    make_map.py [-r <seed>] [-w <width>] [-h <height>] [-n <n_cells>] [-D <method>] [-O <offset_radius_ratio>] [-a <avg_resource_density>] [-p <n_players>] [-s <starting_n_resources] [-U]
+    make_map.py [-r <seed>] [-w <width>] [-h <height>] [-n <n_cells>]
+        [-D <method>] [-O <offset_radius_ratio>] [-k <spec>] [-p <n_players>]
+        [-s <spec>] [-U]
     
 
 Options:
@@ -34,17 +36,15 @@ Options:
         for '--cell-distribution-method'. The radius is calculated internally 
         for both the x and y dimensions to space points evenly on the map.
 
-    -a --avg-resource-density <float>       [default: 1.5]
-        The map-averaged resource density target when assigning resources to 
-        tiles. The actual map-average may be slightly different.
-        e.g. Given an average of 1.5, there will be ceiling(1.5 * n_cells) 
-        resources total for the whole map that are assigned to tiles randomly.
+    -k --resource-counts <spec>
+        How many of each resource to include in the map.  Specify as a 
+        comma-separated list of "resource:count" terms, e.g. "A:2,B:10".
 
     -p --n-players <int>                    [default: 2]
         Number of players
 
-    -s --starting-n-resources <int>         [default: 3]
-        The number of resources that should be in a player's starting tile.
+    -s --starting-resources <spec>
+        The resources that should be in each player's starting tile.
 
     -U --no-upload
         Don't upload the information to Google drive. Instead, this option will
@@ -544,40 +544,44 @@ def determine_ownership(points_df, map_width, map_height, target_n_resources, n_
         ownership[tile_id] = owner_id
     return ownership
 
-def fix_starting_resources(points_df, resources_df, resource_types, target_n_resources):
+def fix_starting_resources(points_df, resources_df, starting_resources):
+    if not starting_resources:
+        return
+
+    resources_dict = resources_df.to_dicT('records')
+
+    to_add = []
+    for resource, count in starting_resources:
+        to_add += count * [resource]
+
     for tile_id in points_df.index[points_df['Owner'] >= 1]:
-        resource_count = points_df.loc[tile_id, 'Resource Count']
-        n_change = target_n_resources - resource_count
-        if n_change > 0:
-            # Add resources to tile
-            print(f"Creating {n_change} new resources at tile {tile_id}")
-            new_resources = np_rng.choice(resource_types, n_change).tolist()
-            points_df.loc[tile_id, 'Resource Count'] = target_n_resources
-            existing_resources = points_df.loc[tile_id, 'Resources']
-            points_df.at[tile_id, 'Resources'] = existing_resources + new_resources
-            new_resources_df = pd.DataFrame({
-                'Tile' : [tile_id] * n_change,
-                'Resource' : new_resources,
-                })
-            resources_df = pd.concat([resources_df, new_resources_df], ignore_index=True)
 
-        elif n_change < 0:
-            # Remove resources from tile
-            print(f"Deleting {-n_change} resources at tile {tile_id}")
-            tile_entries = resources_df[resources_df['Tile'] == tile_id]
-            indices_to_keep = tile_entries.index.values[:n_change]
-            indices_to_drop = tile_entries.index.values[n_change:]
-            resources_df.drop(indices_to_drop, axis=0, inplace=True)
-            updated_list = resources_df.loc[indices_to_keep, 'Resource'].tolist()
+        # Remove any existing resource in this tile.
+        resources_dict = {
+                x
+                for x in resources_dict
+                if x['Tile'] != tile_id
+        }
 
-            points_df.loc[tile_id, 'Resource Count'] = target_n_resources
-            points_df.at[tile_id, 'Resources'] = updated_list
-        else:
-            # No change needed
-            continue
+        # Add back the requested resource:
+        resources_dict += to_add
 
+    resources_df = pd.DataFramce(resource_dict)
     resources_df.sort_values(['Tile', 'Resource'], inplace=True, ignore_index=True)
-    return points_df, resources_df
+
+    return resources_df
+
+def parse_resource_spec(spec):
+    if spec is None:
+        return {}
+
+    resources = {}
+    for entry in spec.split(','):
+        key, count = entry.split(':')
+        resources[key] = int(count)
+
+    return resources
+
 
 """"""
 
@@ -589,9 +593,9 @@ map_height = int(args['--map-height'])
 n_cells = int(args['--n-cells'])
 distribution_method = args['--cell-distribution-method']
 offset_radius_ratio = float(args['--offset-radius-ratio'])
-map_resource_density = float(args['--avg-resource-density'])
+map_resource_density = parse_resource_spec(args['--resource-counts'])
 n_players = int(args['--n-players'])
-starting_n_resources = int(args['--starting-n-resources'])
+starting_resources = parse_resource_spec(args['--starting-resources'])
 
 assert map_width > 0
 assert map_height > 0
@@ -650,15 +654,15 @@ points_df['Resources'] = points_df['Resources'].apply(lambda e: e if isinstance(
 
 ## Pick starting locations
 points_df['Owner'] = determine_ownership(
-        points_df, map_width, map_height, starting_n_resources,
+        points_df, map_width, map_height, starting_resources,
         n_players=n_players,
         #shape='rectangular',
         shape='ellipse',
         )
 
 # Fix number of resources in starting tiles
-points_df, resources_df = fix_starting_resources(
-        points_df, resources_df, resource_types, starting_n_resources
+resources_df = fix_starting_resources(
+        points_df, resources_df, starting_resources,
         )
 
 ## Upload information to Google Docs
