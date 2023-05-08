@@ -565,25 +565,28 @@ def fix_starting_resources(points_df, resources_df, starting_resources):
     if not starting_resources:
         return
 
-    resources_dict = resources_df.to_dicT('records')
+    resources_dict = resources_df.to_dict('records')
 
     to_add = []
-    for resource, count in starting_resources:
-        to_add += count * [resource]
+    for resource, count in starting_resources.items():
+        to_add += [{'Resource': resource}] * count
 
     for tile_id in points_df.index[points_df['Owner'] >= 1]:
 
         # Remove any existing resource in this tile.
-        resources_dict = {
+        resources_dict = [
                 x
                 for x in resources_dict
-                if x['Tile'] != tile_id
-        }
+                if x['Tile'] != int(tile_id)
+        ]
 
         # Add back the requested resource:
-        resources_dict += to_add
+        resources_dict += [
+                {'Tile': int(tile_id), **x}
+                for x in to_add
+        ]
 
-    resources_df = pd.DataFramce(resource_dict)
+    resources_df = pd.DataFrame(resources_dict)
     resources_df.sort_values(['Tile', 'Resource'], inplace=True, ignore_index=True)
 
     return resources_df
@@ -661,13 +664,7 @@ edges_df = pd.DataFrame(edges_on_map , columns=['Tile 1', 'Tile 2'])
 
 ## Distribute resources
 #resources_df = generate_resources(points_df, resource_types, map_resource_density)
-resources_count_dict = {
-        'A' : 1,
-        'B' : 1,
-        'C' : 1,
-        'D' : 1,
-        }
-resources_df = generate_resources_from_dict(points_df, resources_count_dict)
+resources_df = generate_resources_from_dict(points_df, map_resource_density)
 resource_groups = resources_df.groupby(by='Tile')
 points_df['Resource Count'] = resource_groups['Resource'].count()
 points_df['Resources'] = resource_groups['Resource'].apply(list)
